@@ -45,7 +45,7 @@ export default function TransactionHistory() {
               </div>
             </div>
             <div className={`transaction-amount ${t.amount < 0 ? "negative" : "positive"}`}>
-              {t.amount < 0 ? "-" : "+"}₦{Math.abs(t.amount).toLocaleString()}
+              {t.amount < 0 ? "-" : "+"}KES{Math.abs(t.amount).toLocaleString()}
             </div>
           </div>
         ))}

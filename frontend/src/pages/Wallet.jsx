@@ -84,11 +84,11 @@ export default function Wallet() {
       <div className="wallet-summary">
         <div className="wallet-card">
           <div className="wallet-label">Available balance</div>
-          <div className="wallet-value">₦{wallet.wallet_balance.toLocaleString()}</div>
+          <div className="wallet-value">KES{wallet.wallet_balance.toLocaleString()}</div>
         </div>
         <div className="wallet-card">
           <div className="wallet-label">Total earned</div>
-          <div className="wallet-value">₦{wallet.total_earned.toLocaleString()}</div>
+          <div className="wallet-value">KES{wallet.total_earned.toLocaleString()}</div>
         </div>
       </div>
 
@@ -100,7 +100,7 @@ export default function Wallet() {
           <h3>Withdraw funds</h3>
           <form onSubmit={handleWithdraw}>
             <div className="field">
-              <label htmlFor="withdrawAmount">Amount (₦)</label>
+              <label htmlFor="withdrawAmount">Amount (KES)</label>
               <input
                 id="withdrawAmount"
                 type="number"

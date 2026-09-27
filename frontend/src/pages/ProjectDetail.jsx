@@ -82,7 +82,7 @@ export default function ProjectDetail() {
         </div>
         <h1>{project.title}</h1>
         <div className="detail-meta">
-          ₦{project.budget.toLocaleString()} · Posted by {project.salesperson_name} ·{" "}
+          KES{project.budget.toLocaleString()} · Posted by {project.salesperson_name} ·{" "}
           {project.applications_count} application
           {project.applications_count !== 1 ? "s" : ""}
         </div>
@@ -92,7 +92,7 @@ export default function ProjectDetail() {
           </div>
           <h1>{project.title}</h1>
           <div className="detail-meta">
-            ₦{project.budget.toLocaleString()} · Posted by {project.salesperson_name} ·{" "}
+            KES{project.budget.toLocaleString()} · Posted by {project.salesperson_name} ·{" "}
             {project.applications_count} application
             {project.applications_count !== 1 ? "s" : ""}
           </div>
@@ -153,7 +153,7 @@ export default function ProjectDetail() {
 
               <div className="field">
                 <label htmlFor="proposedBudget">
-                  Proposed budget (₦, optional — defaults to listed budget)
+                  Proposed budget (KES, optional — defaults to listed budget)
                 </label>
                 <input
                   id="proposedBudget"

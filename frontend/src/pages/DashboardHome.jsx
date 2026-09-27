@@ -38,7 +38,7 @@ export default function DashboardHome() {
               <div className="project-row-main">
                 <div className="project-row-title">{p.title}</div>
                 <div className="project-row-meta">
-                  ₦{p.budget.toLocaleString()} · {p.applications_count} applications
+                  KES{p.budget.toLocaleString()} · {p.applications_count} applications
                 </div>
               </div>
               <span className={`status-badge status-${p.status}`}>{p.status}</span>

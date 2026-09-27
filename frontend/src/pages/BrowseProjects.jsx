@@ -79,14 +79,14 @@ export default function BrowseProjects() {
         <input
           name="min_budget"
           type="number"
-          placeholder="Min ₦"
+          placeholder="Min KES"
           value={filters.min_budget}
           onChange={handleFilterChange}
         />
         <input
           name="max_budget"
           type="number"
-          placeholder="Max ₦"
+          placeholder="Max KES"
           value={filters.max_budget}
           onChange={handleFilterChange}
         />
@@ -115,7 +115,7 @@ export default function BrowseProjects() {
             <p className="project-card-desc">{project.description}</p>
             <div className="project-card-footer">
               <span className="project-card-budget">
-                ₦{project.budget.toLocaleString()}
+                KES{project.budget.toLocaleString()}
               </span>
               <span className="project-card-apps">
                 {project.applications_count} application

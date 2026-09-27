@@ -22,7 +22,8 @@ import PaymentCallback from "./pages/PaymentCallback";
 import Wallet from "./pages/Wallet";
 import TransactionHistory from "./pages/TransactionHistory";
 import Profile from "./pages/Profile";
-import Settings from "./pages/Settings"
+import Settings from "./pages/Settings";
+import PaymentVerify from "./pages/PaymentVerify";
 
 function MessageToast() {
   const { toast, dismissToast } = useSocket();
@@ -156,14 +157,7 @@ function App() {
             />
 
             {/* Wallet routes */}
-            <Route
-              path="/payment/callback"
-              element={
-                <ProtectedRoute>
-                  <PaymentCallback />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/payment/verify" element={<PaymentVerify />} />
             <Route
               path="/dashboard/wallet"
               element={

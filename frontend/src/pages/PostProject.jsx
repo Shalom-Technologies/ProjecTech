@@ -157,7 +157,7 @@ export default function PostProject() {
           </div>
 
           <div className="field">
-            <label htmlFor="budget">Budget (₦)</label>
+            <label htmlFor="budget">Budget (KES)</label>
             <input
               id="budget"
               name="budget"

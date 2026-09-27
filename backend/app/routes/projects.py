@@ -219,6 +219,17 @@ async def update_project(
     if project["salesperson_id"] != current_user["_id"]:
         raise HTTPException(status_code=403, detail="You can only update your own projects")
 
+    if updates.status == "completed":
+        successful_payment = await db.transactions.find_one({
+            "project_id": project["_id"],
+            "status": "success",
+        })
+        if not successful_payment:
+            raise HTTPException(
+                status_code=400,
+                detail="This project must be funded before it can be marked completed"
+            )
+
     update_data = {k: v for k, v in updates.model_dump(exclude_unset=True).items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc)
 

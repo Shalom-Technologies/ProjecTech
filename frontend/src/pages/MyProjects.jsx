@@ -5,6 +5,7 @@ import PaymentModal from "../components/PaymentModal";
 import { projectsApi } from "../services/projects";
 import ReviewForm from "../components/ReviewForm";
 import { reviewsApi } from "../services/reviews";
+import { paymentsApi } from "../services/payments";
 
 const STATUS_LABELS = {
   open: "Open",
@@ -21,6 +22,7 @@ export default function MyProjects() {
   const [payingProject, setPayingProject] = useState(null);
   const [reviewedMap, setReviewedMap] = useState({});
   const [reviewingProjectId, setReviewingProjectId] = useState(null);
+  const [fundedMap, setFundedMap] = useState({});
   const navigate = useNavigate();
 
   const loadProjects = useCallback(async () => {
@@ -29,11 +31,19 @@ export default function MyProjects() {
       const res = await projectsApi.list({ per_page: 50 });
       setProjects(res.data.data);
 
+      const inProgress = res.data.data.filter((p) => p.status === "in_progress");
+      const fundedChecks = await Promise.all(
+        inProgress.map((p) =>
+          paymentsApi.getProjectStatus(p.id).then((r) => [p.id, r.data.is_funded])
+        )
+      );
+      setFundedMap(Object.fromEntries(fundedChecks));
+
       const completed = res.data.data.filter((p) => p.status === "completed");
-      const checks = await Promise.all(
+      const reviewChecks = await Promise.all(
         completed.map((p) => reviewsApi.checkReviewed(p.id).then((r) => [p.id, r.data.has_reviewed]))
       );
-      setReviewedMap(Object.fromEntries(checks));
+      setReviewedMap(Object.fromEntries(reviewChecks));
     } catch {
       setError("Could not load your projects.");
     } finally {
@@ -82,14 +92,14 @@ export default function MyProjects() {
         </div>
       )}
 
-            <div className="project-table">
+      <div className="project-table">
         {projects.map((project) => (
           <div key={project.id}>
             <div className="project-row">
               <div className="project-row-main">
                 <div className="project-row-title">{project.title}</div>
                 <div className="project-row-meta">
-                  ₦{project.budget.toLocaleString()} · {project.applications_count} application
+                  KES{project.budget.toLocaleString()} · {project.applications_count} application
                   {project.applications_count !== 1 ? "s" : ""}
                 </div>
               </div>
@@ -98,8 +108,12 @@ export default function MyProjects() {
                 {STATUS_LABELS[project.status] || project.status}
               </span>
 
+              {project.status === "in_progress" && fundedMap[project.id] && (
+                <span className="status-badge status-funded">Funded</span>
+              )}
+
               <div className="project-row-actions">
-                {project.status === "in_progress" && (
+                {project.status === "in_progress" && !fundedMap[project.id] && (
                   <button onClick={() => setPayingProject(project)}>
                     Fund project
                   </button>

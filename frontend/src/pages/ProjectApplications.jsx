@@ -96,7 +96,7 @@ export default function ProjectApplications() {
             <p className="application-letter">{app.cover_letter}</p>
 
             <div className="application-footer">
-              <span>Proposed budget: ₦{app.proposed_budget.toLocaleString()}</span>
+              <span>Proposed budget: KES{app.proposed_budget.toLocaleString()}</span>
 
               <div className="application-actions">
                 <MessageButton
@@ -108,7 +108,7 @@ export default function ProjectApplications() {
                 {app.status === "pending" && (
                   <>
                     <button
-                      className="btn-primary"
+                      className="btn-secondary"
                       onClick={() => handleAccept(app.application_id)}
                       disabled={actingOn === app.application_id}
                     >

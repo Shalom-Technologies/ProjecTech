@@ -88,13 +88,13 @@ async def initialize_payment(
 
     try:
         paystack_response = await paystack.initialize_transaction(
-            email=current_user["email"],
-            amount_kobo=int(amount * 100),  # Paystack expects kobo
+            email=project["client_email"],
+            amount_kobo=int(amount * 100),
             metadata={
                 "transaction_id": transaction_id,
                 "project_id": str(project["_id"]),
             },
-            callback_url=f"{settings.FRONTEND_URL}/payment/callback",
+            callback_url=f"{settings.FRONTEND_URL}/payment/verify",
         )
     except httpx.HTTPStatusError as e:
         await db.transactions.update_one({"_id": result.inserted_id}, {"$set": {"status": "failed"}})
@@ -124,10 +124,7 @@ async def initialize_payment(
 # ============================================================================
 
 @router.post("/verify")
-async def verify_payment(
-    verify_data: PaymentVerify,
-    current_user: dict = Depends(get_current_user)
-):
+async def verify_payment(verify_data: PaymentVerify):
     db = get_database()
 
     transaction = await db.transactions.find_one({"paystack_reference": verify_data.reference})
@@ -282,7 +279,7 @@ async def release_escrow(
             "user_id": user_id,
             "type": "payment_confirmed",
             "title": "Payment released",
-            "description": f"₦{amount:,.2f} has been added to your wallet",
+            "description": f"KES{amount:,.2f} has been added to your wallet",
             "is_read": False,
             "created_at": datetime.now(timezone.utc),
         })
@@ -315,3 +312,16 @@ async def get_transaction(transaction_id: str, current_user: dict = Depends(get_
         "commission_breakdown": transaction["commission_breakdown"],
         "created_at": transaction["created_at"],
     }
+
+@router.get("/project/{project_id}/status")
+async def get_project_payment_status(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    db = get_database()
+    transaction = await db.transactions.find_one({
+        "project_id": to_object_id(project_id),
+        "status": "success",
+    })
+
+    return {"is_funded": transaction is not None}

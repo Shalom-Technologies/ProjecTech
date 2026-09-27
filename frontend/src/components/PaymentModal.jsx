@@ -5,8 +5,10 @@ export default function PaymentModal({ project, onClose }) {
   const [amount, setAmount] = useState(project.budget);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [paymentLink, setPaymentLink] = useState(null);
+  const [copied, setCopied] = useState(false);
 
-  const handlePay = async (e) => {
+  const handleGenerate = async (e) => {
     e.preventDefault();
     setError("");
 
@@ -21,16 +23,22 @@ export default function PaymentModal({ project, onClose }) {
         project_id: project.id,
         amount: Number(amount),
       });
-      // Redirect to Paystack's hosted checkout page
-      window.location.href = res.data.authorization_url;
+      setPaymentLink(res.data.authorization_url);
     } catch (err) {
       setError(
         err.response?.data?.message ||
           err.response?.data?.detail ||
-          "Could not start payment. Please try again."
+          "Could not generate payment link."
       );
+    } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(paymentLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -45,41 +53,42 @@ export default function PaymentModal({ project, onClose }) {
 
         {error && <div className="form-error-banner">{error}</div>}
 
-        <form onSubmit={handlePay}>
-          <div className="field">
-            <label htmlFor="amount">Amount to pay (₦)</label>
-            <input
-              id="amount"
-              type="number"
-              min="1"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
+        {!paymentLink ? (
+          <form onSubmit={handleGenerate}>
+            <div className="field">
+              <label htmlFor="amount">Amount to invoice (KES)</label>
+              <input
+                id="amount"
+                type="number"
+                min="1"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </div>
+
+            <p className="modal-note">
+              This creates a payment link for {project.client_email} to pay directly.
+              Funds are held securely until the project is marked complete.
+            </p>
+
+            <button type="submit" disabled={submitting}>
+              {submitting ? "Generating link..." : "Generate payment link"}
+            </button>
+          </form>
+        ) : (
+          <div className="payment-link-box">
+            <p>Send this link to your client to complete payment:</p>
+            <div className="link-display">
+              <input readOnly value={paymentLink} onFocus={(e) => e.target.select()} />
+              <button type="button" onClick={handleCopy}>
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Done
+            </button>
           </div>
-
-          <div className="payment-breakdown">
-            <div>
-              <span>Developer (45%)</span>
-              <span>₦{(amount * 0.45).toLocaleString()}</span>
-            </div>
-            <div>
-              <span>Your commission (35%)</span>
-              <span>₦{(amount * 0.35).toLocaleString()}</span>
-            </div>
-            <div>
-              <span>Platform fee (20%)</span>
-              <span>₦{(amount * 0.2).toLocaleString()}</span>
-            </div>
-          </div>
-
-          <p className="modal-note">
-            Funds are held securely until the project is marked complete.
-          </p>
-
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Redirecting to Paystack..." : "Proceed to pay"}
-          </button>
-        </form>
+        )}
       </div>
     </div>
   );

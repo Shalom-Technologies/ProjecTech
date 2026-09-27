@@ -87,7 +87,7 @@ export default function MyDevProjects() {
               <Link to={`/dashboard/browse/${project.id}`} className="project-row-main">
                 <div className="project-row-title">{project.title}</div>
                 <div className="project-row-meta">
-                  ₦{project.budget.toLocaleString()} · Assigned{" "}
+                  KES{project.budget.toLocaleString()} · Assigned{" "}
                   {new Date(project.assignment_date).toLocaleDateString()}
                 </div>
               </Link>

@@ -55,7 +55,7 @@ export default function Profile() {
           <div className="stat-label">Completed projects</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">₦{(profile.total_earned || 0).toLocaleString()}</div>
+          <div className="stat-value">KES{(profile.total_earned || 0).toLocaleString()}</div>
           <div className="stat-label">Total earned</div>
         </div>
       </div>

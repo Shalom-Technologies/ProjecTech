@@ -87,7 +87,7 @@ export default function EditProject() {
 
         <div className="field-row">
           <div className="field">
-            <label htmlFor="budget">Budget (₦)</label>
+            <label htmlFor="budget">Budget (KES)</label>
             <input
               id="budget"
               name="budget"
