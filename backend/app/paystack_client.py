@@ -19,7 +19,7 @@ class PaystackClient:
             response = await client.post(
                 f"{self.base_url}/transaction/initialize",
                 headers=self.headers,
-                json={"email": email, "amount": amount_kobo, "metadata": metadata},
+                json=payload,
                 timeout=15.0,
             )
             response.raise_for_status()

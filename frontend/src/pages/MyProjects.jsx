@@ -31,12 +31,19 @@ export default function MyProjects() {
       const res = await projectsApi.list({ per_page: 50 });
       setProjects(res.data.data);
 
-      const inProgress = res.data.data.filter((p) => p.status === "in_progress");
+           const inProgress = res.data.data.filter((p) => p.status === "in_progress");
+      console.log("inProgress projects:", inProgress);
+
       const fundedChecks = await Promise.all(
         inProgress.map((p) =>
-          paymentsApi.getProjectStatus(p.id).then((r) => [p.id, r.data.is_funded])
+          paymentsApi.getProjectStatus(p.id).then((r) => {
+            console.log(`Funding check for ${p.id}:`, r.data);
+            return [p.id, r.data.is_funded];
+          })
         )
       );
+      console.log("fundedChecks array:", fundedChecks);
+
       setFundedMap(Object.fromEntries(fundedChecks));
 
       const completed = res.data.data.filter((p) => p.status === "completed");
