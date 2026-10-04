@@ -24,6 +24,8 @@ import TransactionHistory from "./pages/TransactionHistory";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import PaymentVerify from "./pages/PaymentVerify";
+import Blog from "./pages/Blog";
+import BlogPost from "./pages/BlogPost";
 
 function MessageToast() {
   const { toast, dismissToast } = useSocket();
@@ -62,6 +64,8 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
 
             <Route
               path="/dashboard"
