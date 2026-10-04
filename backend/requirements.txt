@@ -9,3 +9,5 @@ pyjwt
 email-validator
 python-multipart
 aiosmtplib
+httpx
+slowapi
