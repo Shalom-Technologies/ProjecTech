@@ -26,6 +26,7 @@ import Settings from "./pages/Settings";
 import PaymentVerify from "./pages/PaymentVerify";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
+import Home from "./pages/Home";
 
 function MessageToast() {
   const { toast, dismissToast } = useSocket();
@@ -196,7 +197,7 @@ function App() {
               }
             />
 
-            <Route path="/" element={<Login />} />
+            <Route path="/" element={<Home />} />
           </Routes>
         </BrowserRouter>
       </SocketProvider>

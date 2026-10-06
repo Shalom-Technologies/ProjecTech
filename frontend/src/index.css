@@ -1545,3 +1545,297 @@ button {
 .blog-post-body p {
   margin-bottom: 1.2rem;
 }
+
+/* ===== Landing page ===== */
+.lp {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.lp-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem;
+}
+
+.lp-brand {
+  font-family: "Fraunces", serif;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--teal);
+  text-decoration: none;
+}
+
+.lp-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.lp-nav-links a:not(.lp-btn) {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+
+.lp-btn {
+  display: inline-block;
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.lp-btn-primary {
+  background: var(--coral);
+  color: white;
+}
+
+.lp-btn-ghost {
+  border: 1px solid var(--teal);
+  color: var(--teal);
+  background: transparent;
+}
+
+.lp-btn-lg {
+  padding: 0.8rem 1.6rem;
+  font-size: 1rem;
+}
+
+.lp-hero {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 4rem 1.5rem 5rem;
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 3rem;
+  align-items: center;
+}
+
+.lp-hero-text h1 {
+  font-family: "Fraunces", serif;
+  font-size: 3.2rem;
+  line-height: 1.1;
+  font-weight: 600;
+  margin: 0 0 1.25rem;
+}
+
+.lp-hero-text p {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 520px;
+  margin: 0 0 2rem;
+}
+
+.lp-hero-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.lp-hero-card {
+  position: relative;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.75rem 1.5rem 1.5rem;
+  box-shadow: 0 12px 32px rgba(15, 61, 62, 0.1);
+  transform: rotate(1.5deg);
+}
+
+.lp-example-tag {
+  position: absolute;
+  top: -0.7rem;
+  left: 1.25rem;
+  background: var(--teal);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+.lp-hero-card-category {
+  color: var(--coral);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.lp-hero-card h3 {
+  font-family: "Fraunces", serif;
+  margin: 0 0 0.5rem;
+  font-size: 1.2rem;
+}
+
+.lp-hero-card p {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: 0 0 1.25rem;
+}
+
+.lp-hero-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lp-pill {
+  background: #e3f2e6;
+  color: #1e6b34;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+}
+
+.lp-section {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+.lp-section h2 {
+  font-family: "Fraunces", serif;
+  font-size: 1.9rem;
+  margin: 0 0 2rem;
+}
+
+.lp-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+
+.lp-step {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.lp-step-number {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.lp-step h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.lp-step p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.lp-audiences {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+}
+
+.lp-audience {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.75rem;
+}
+
+.lp-audience h3 {
+  font-family: "Fraunces", serif;
+  font-size: 1.3rem;
+  margin: 0 0 0.6rem;
+}
+
+.lp-audience p {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0 0 1rem;
+}
+
+.lp-audience a {
+  color: var(--teal);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.lp-cta {
+  background: var(--teal);
+  color: white;
+  text-align: center;
+  padding: 4rem 1.5rem;
+  margin-top: 2rem;
+}
+
+.lp-cta h2 {
+  font-family: "Fraunces", serif;
+  font-size: 2rem;
+  margin: 0 0 0.5rem;
+}
+
+.lp-cta p {
+  margin: 0 0 1.75rem;
+  opacity: 0.8;
+}
+
+.lp-footer {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.lp-footer nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.lp-footer a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+@media (max-width: 800px) {
+  .lp-hero {
+    grid-template-columns: 1fr;
+    padding-top: 2rem;
+  }
+  .lp-hero-text h1 {
+    font-size: 2.3rem;
+  }
+  .lp-hero-card {
+    transform: none;
+  }
+  .lp-steps,
+  .lp-audiences {
+    grid-template-columns: 1fr;
+  }
+  .lp-footer {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
