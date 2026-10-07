@@ -5,12 +5,14 @@ import { blogApi } from "../services/blog";
 export default function Blog() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    blogApi.listPosts().then((data) => {
-      setPosts(data);
-      setLoading(false);
-    });
+    blogApi
+      .listPosts()
+      .then((data) => setPosts(data))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -20,10 +22,11 @@ export default function Blog() {
       </header>
 
       {loading && <p>Loading posts...</p>}
+      {error && <p>Couldn't load posts right now. Please try again later.</p>}
 
       <div className="blog-grid">
         {posts.map((post) => (
-          <Link to={`/blog/${post.slug}`} className="blog-card" key={post._id}>
+          <Link to={`/blog/${post.slug}`} className="blog-card" key={post.id}>
             {post.coverImageUrl && (
               <img src={post.coverImageUrl} alt="" className="blog-card-image" />
             )}
