@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /dashboard
+Disallow: /payment
+Sitemap: https://projectech.dev/sitemap.xml
