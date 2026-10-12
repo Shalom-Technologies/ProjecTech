@@ -45,7 +45,7 @@ export default function Home() {
           <h3>Online store for a local retailer</h3>
           <p>Product catalogue, cart and card payments for a small shop.</p>
           <div className="lp-hero-card-footer">
-            <strong>₦450,000</strong>
+            <strong>KES50,000</strong>
             <span className="lp-pill">Open</span>
           </div>
         </div>
