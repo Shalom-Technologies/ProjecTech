@@ -1,46 +1,57 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
+import DOMPurify from "dompurify";
 import { blogApi } from "../services/blog";
 
-export default function Blog() {
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function BlogPost() {
+  const { slug } = useParams();
+  const [post, setPost] = useState(null);
+  const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState(false);
 
   useEffect(() => {
+    setPost(null);
+    setNotFound(false);
+    setError(false);
     blogApi
-      .listPosts()
-      .then((data) => setPosts(data))
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, []);
+      .getPostBySlug(slug)
+      .then((data) => {
+        if (!data) setNotFound(true);
+        else setPost(data);
+      })
+      .catch(() => setError(true));
+  }, [slug]);
+
+  if (notFound || error) {
+    return (
+      <div className="blog-page">
+        <p>{notFound ? "Post not found." : "Couldn't load this post right now."}</p>
+        <Link to="/blog">← Back to blog</Link>
+      </div>
+    );
+  }
+
+  if (!post) return null;
 
   return (
-    <div className="blog-page">
-      <header className="blog-header">
-        <h1>Blog</h1>
-      </header>
+    <article className="blog-post">
+      <Link to="/blog" className="back-link">
+        ← Back to blog
+      </Link>
 
-      {loading && <p>Loading posts...</p>}
-      {error && <p>Couldn't load posts right now. Please try again later.</p>}
+      {post.coverImageUrl && (
+        <img src={post.coverImageUrl} alt="" className="blog-post-cover" />
+      )}
 
-      <div className="blog-grid">
-        {posts.map((post) => (
-          <Link to={`/blog/${post.slug}`} className="blog-card" key={post.id}>
-            {post.coverImageUrl && (
-              <img src={post.coverImageUrl} alt="" className="blog-card-image" />
-            )}
-            <div className="blog-card-body">
-              <h2>{post.title}</h2>
-              {post.excerpt && <p>{post.excerpt}</p>}
-              <div className="blog-card-meta">
-                {post.authorName} ·{" "}
-                {new Date(post.publishedAt).toLocaleDateString()}
-              </div>
-            </div>
-          </Link>
-        ))}
+      <h1>{post.title}</h1>
+      <div className="blog-post-meta">
+        {post.authorName} · {new Date(post.publishedAt).toLocaleDateString()}
       </div>
-    </div>
+
+      <div
+        className="blog-post-body"
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(post.contentHtml) }}
+      />
+    </article>
   );
 }
