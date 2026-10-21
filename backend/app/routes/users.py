@@ -22,6 +22,14 @@ router = APIRouter(prefix="/api/users", tags=["Users"])
 
 @router.get("/profile")
 async def get_profile(current_user: dict = Depends(get_current_user)):
+    # Counted from the projects themselves, so it is always right: it follows a
+    # project being completed (or reopened) and needs no separate counter to keep in sync.
+    db = get_database()
+    owner_field = "assigned_to" if current_user["role"] == "developer" else "salesperson_id"
+    completed_projects = await db.projects.count_documents(
+        {owner_field: current_user["_id"], "status": "completed"}
+    )
+
     return {
         "id": str(current_user["_id"]),
         "email": current_user["email"],
@@ -37,7 +45,7 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         "total_earned": current_user.get("total_earned", 0.0),
         "average_rating": current_user.get("average_rating"),
         "total_reviews": current_user.get("total_reviews", 0),
-        "completed_projects": current_user.get("completed_projects", 0),
+        "completed_projects": completed_projects,
         "created_at": current_user["created_at"],
     }
 

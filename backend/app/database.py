@@ -17,6 +17,7 @@ async def connect_to_mongo():
     logger.info(f"Connected to MongoDB: {settings.DATABASE_NAME}")
     await db.users.create_index("email", unique=True)
     await db.projects.create_index("salesperson_id")
+    await db.projects.create_index("assigned_to")
     await db.projects.create_index("status")
     await db.projects.create_index("category")
     await db.projects.create_index([("created_at", -1)])
