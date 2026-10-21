@@ -28,6 +28,7 @@ import InvoicePage from "./pages/InvoicePage";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
 import Home from "./pages/Home";
+import NotFound from "./pages/NotFound";
 
 function MessageToast() {
   const { toast, dismissToast } = useSocket();
@@ -200,6 +201,7 @@ function App() {
             />
 
             <Route path="/" element={<Home />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
       </SocketProvider>

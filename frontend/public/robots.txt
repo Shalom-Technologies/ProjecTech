@@ -2,4 +2,5 @@ User-agent: *
 Disallow: /dashboard
 Disallow: /payment
 Disallow: /pay/
+Disallow: /reset-password
 Sitemap: https://projectech.dev/sitemap.xml
