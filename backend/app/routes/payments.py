@@ -171,9 +171,6 @@ async def verify_payment(verify_data: PaymentVerify):
     if transaction["status"] == "success":
         return {"status": "success", "message": "Already verified", "transaction_id": transaction["transaction_id"]}
 
-    if transaction["status"] == "cancelled":
-        raise HTTPException(status_code=400, detail="This payment link is no longer valid. Ask for a new one.")
-
     try:
         paystack_response = await paystack.verify_transaction(verify_data.reference)
     except httpx.HTTPStatusError as e:
@@ -181,6 +178,25 @@ async def verify_payment(verify_data: PaymentVerify):
         raise HTTPException(status_code=502, detail="Failed to verify payment with Paystack")
 
     data = paystack_response["data"]
+
+    if transaction["status"] == "cancelled":
+        if data["status"] != "success":
+            raise HTTPException(status_code=400, detail="This payment link is no longer valid. Ask for a new one.")
+
+        outcome = await _handle_payment_on_cancelled(db, transaction)
+        if outcome == "accepted":
+            return {
+                "status": "success",
+                "message": "Payment verified successfully",
+                "transaction_id": transaction["transaction_id"],
+            }
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This payment link was replaced after the project's price changed, so the payment "
+                "could not be applied to the project. It will be refunded. Please use the new link."
+            ),
+        )
 
     if data["status"] != "success":
         await db.transactions.update_one({"_id": transaction["_id"]}, {"$set": {"status": "failed"}})
@@ -212,6 +228,75 @@ async def _mark_transaction_successful(db, transaction: dict):
     logger.info(f"Transaction {transaction['transaction_id']} marked successful, funds held in escrow")
 
 
+async def _handle_payment_on_cancelled(db, transaction: dict) -> str:
+    """
+    A client paid a link that ProjecTech had already retired (usually because the
+    price changed after the link was sent). Paystack cannot switch such a link off.
+
+    - If the amount paid equals the project's current agreed price and the project
+      is not already funded, the payment is exactly what we were waiting for, so
+      it is accepted as the funding.
+    - Otherwise it is NOT counted towards the project (the developer's pay depends
+      on the price). It is flagged for refund and the salesperson is told.
+
+    Safe to call repeatedly for the same payment. Returns "accepted" or "flagged".
+    """
+    if transaction.get("paid_while_cancelled"):
+        return "flagged"  # already handled and the salesperson already told
+
+    project = await db.projects.find_one({"_id": transaction["project_id"]})
+    already_funded = await db.transactions.find_one(
+        {"project_id": transaction["project_id"], "status": "success"}
+    ) is not None
+
+    if project and not already_funded and round_money(transaction["total_amount"]) == get_agreed_amount(project):
+        await _mark_transaction_successful(db, transaction)
+        await db.transactions.update_one(
+            {"_id": transaction["_id"]},
+            {"$set": {"accepted_after_cancel": True}}
+        )
+        # Another unpaid link for this project must not be payable any more.
+        await db.transactions.update_many(
+            {"project_id": transaction["project_id"], "status": "pending"},
+            {"$set": {"status": "cancelled", "cancelled_reason": "project_already_funded"}}
+        )
+        logger.info(
+            f"Payment on retired link {transaction['transaction_id']} matched the agreed price: accepted as funding"
+        )
+        return "accepted"
+
+    await db.transactions.update_one(
+        {"_id": transaction["_id"]},
+        {"$set": {
+            "paid_while_cancelled": True,
+            "needs_refund": True,
+            "paid_at": datetime.now(timezone.utc),
+        }}
+    )
+    logger.error(
+        f"Payment received on cancelled transaction {transaction['transaction_id']} "
+        f"(ref {transaction.get('paystack_reference')}, {settings.CURRENCY} {transaction['total_amount']:,.2f}): "
+        f"refund required"
+    )
+
+    if project:
+        reason = "the project is already funded" if already_funded else "the price changed after that link was sent"
+        await db.notifications.insert_one({
+            "user_id": project["salesperson_id"],
+            "type": "payment_needs_refund",
+            "title": "Client paid an outdated link",
+            "description": (
+                f"{project.get('client_email', 'The client')} paid {settings.CURRENCY} "
+                f"{transaction['total_amount']:,.2f} for '{project['title']}', but {reason}. "
+                f"That payment will be refunded; ask the client to use the current link."
+            ),
+            "project_id": project["_id"],
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc),
+        })
+    return "flagged"
+
+
 # ============================================================================
 # WEBHOOK — Paystack calls this server-to-server
 # ============================================================================
@@ -240,16 +325,7 @@ async def paystack_webhook(request: Request):
         reference = data.get("reference")
         transaction = await db.transactions.find_one({"paystack_reference": reference})
         if transaction and transaction["status"] == "cancelled":
-            # The link was retired (price changed) but the client paid it anyway.
-            # Do not count it towards the project; flag it so it can be refunded.
-            await db.transactions.update_one(
-                {"_id": transaction["_id"]},
-                {"$set": {"paid_while_cancelled": True, "paid_at": datetime.now(timezone.utc)}}
-            )
-            logger.error(
-                f"Payment received on cancelled transaction {transaction['transaction_id']} "
-                f"(ref {reference}): manual refund required"
-            )
+            await _handle_payment_on_cancelled(db, transaction)
         elif transaction and transaction["status"] != "success":
             await _mark_transaction_successful(db, transaction)
 
