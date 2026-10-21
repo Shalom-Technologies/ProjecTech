@@ -7,7 +7,7 @@ from app.security import hash_password, verify_password, create_access_token
 from app.rate_limit import limiter
 from datetime import timedelta
 from app.schemas import ForgotPasswordRequest, ResetPasswordRequest
-from app.security import generate_reset_token, hash_password
+from app.security import generate_reset_token, hash_reset_token, hash_password
 from app.email_client import send_password_reset_email
 from app.config import settings
 
@@ -105,7 +105,7 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
     await db.password_resets.delete_many({"user_id": user["_id"]})
     await db.password_resets.insert_one({
         "user_id": user["_id"],
-        "token": token,
+        "token_hash": hash_reset_token(token),
         "expires_at": expires_at,
         "used": False,
         "created_at": datetime.now(timezone.utc),
@@ -123,10 +123,16 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
 
 
 @router.post("/reset-password")
-async def reset_password(data: ResetPasswordRequest):
+@limiter.limit("10/minute")
+async def reset_password(request: Request, data: ResetPasswordRequest):
     db = get_database()
 
-    reset_record = await db.password_resets.find_one({"token": data.token, "used": False})
+    # Claim the token in one step so it can only ever be used once, even if the link is
+    # submitted twice at the same moment.
+    reset_record = await db.password_resets.find_one_and_update(
+        {"token_hash": hash_reset_token(data.token), "used": False},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc)}},
+    )
 
     if not reset_record:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
@@ -138,22 +144,17 @@ async def reset_password(data: ResetPasswordRequest):
     if expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-    new_password_hash = hash_password(data.new_password)
-
     await db.users.update_one(
         {"_id": reset_record["user_id"]},
-        {"$set": {"password_hash": new_password_hash, "updated_at": datetime.now(timezone.utc)}}
-    )
-
-    await db.password_resets.update_one(
-        {"_id": reset_record["_id"]},
-        {"$set": {"used": True}}
+        {"$set": {"password_hash": hash_password(data.new_password), "updated_at": datetime.now(timezone.utc)}}
     )
 
     return {"message": "Password reset successfully. You can now log in with your new password."}
 
 @router.post("/change-password")
+@limiter.limit("5/minute")
 async def change_password(
+    request: Request,
     data: ChangePasswordRequest,
     current_user: dict = Depends(get_current_user)
 ):

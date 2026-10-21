@@ -43,7 +43,14 @@ async def connect_to_mongo():
     await db.wallet_transactions.create_index("user_id")
     await db.wallet_transactions.create_index("paystack_reference")
     await db.wallet_transactions.create_index([("created_at", -1)])
-    await db.password_resets.create_index("token", unique=True)
+    # Reset tokens used to be stored as plain text. Remove those (they are live secrets) and
+    # their old index, then index the hash that is stored now.
+    await db.password_resets.delete_many({"token": {"$exists": True}})
+    try:
+        await db.password_resets.drop_index("token_1")
+    except Exception:  # noqa: BLE001 - already gone on a fresh database
+        pass
+    await db.password_resets.create_index("token_hash", unique=True, sparse=True)
     await db.password_resets.create_index("user_id")
     await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
     await db.reviews.create_index("reviewed_user_id")

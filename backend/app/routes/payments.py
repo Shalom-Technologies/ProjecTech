@@ -175,7 +175,8 @@ async def create_or_get_payment_link(db, project: dict, requested_amount: float 
 # ============================================================================
 
 @router.post("/verify")
-async def verify_payment(verify_data: PaymentVerify):
+@limiter.limit("20/minute")
+async def verify_payment(request: Request, verify_data: PaymentVerify):
     db = get_database()
 
     transaction = await db.transactions.find_one({"paystack_reference": verify_data.reference})
@@ -183,7 +184,7 @@ async def verify_payment(verify_data: PaymentVerify):
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     if transaction["status"] == "success":
-        return {"status": "success", "message": "Already verified", "transaction_id": transaction["transaction_id"]}
+        return {"status": "success", "message": "Already verified"}
 
     try:
         paystack_response = await paystack.verify_transaction(verify_data.reference)
@@ -199,11 +200,7 @@ async def verify_payment(verify_data: PaymentVerify):
 
         outcome = await _handle_payment_on_cancelled(db, transaction)
         if outcome == "accepted":
-            return {
-                "status": "success",
-                "message": "Payment verified successfully",
-                "transaction_id": transaction["transaction_id"],
-            }
+            return {"status": "success", "message": "Payment verified successfully"}
         raise HTTPException(
             status_code=400,
             detail=(
@@ -220,11 +217,7 @@ async def verify_payment(verify_data: PaymentVerify):
 
     await _mark_transaction_successful(db, transaction)
 
-    return {
-        "status": "success",
-        "message": "Payment verified successfully",
-        "transaction_id": transaction["transaction_id"],
-    }
+    return {"status": "success", "message": "Payment verified successfully"}
 
 
 async def _mark_transaction_successful(db, transaction: dict):

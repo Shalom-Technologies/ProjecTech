@@ -2,6 +2,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 import jwt
 from app.config import settings
+import hashlib
 import secrets
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -31,3 +32,9 @@ def decode_access_token(token: str) -> dict:
 
 def generate_reset_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    """Only this hash is stored. The real token exists only in the email link, so a copy of
+    the database cannot be used to reset anyone's password."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
