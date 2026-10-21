@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from datetime import datetime, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
+from pymongo.errors import DuplicateKeyError
 import httpx
 import hmac
 import hashlib
@@ -212,7 +213,9 @@ async def verify_payment(verify_data: PaymentVerify):
         )
 
     if data["status"] != "success":
-        await db.transactions.update_one({"_id": transaction["_id"]}, {"$set": {"status": "failed"}})
+        await db.transactions.update_one(
+            {"_id": transaction["_id"], "status": "pending"}, {"$set": {"status": "failed"}}
+        )
         raise HTTPException(status_code=400, detail=f"Payment not successful: {data['status']}")
 
     await _mark_transaction_successful(db, transaction)
@@ -230,14 +233,27 @@ async def _mark_transaction_successful(db, transaction: dict):
     Money stays in escrow (held) until the project is marked complete —
     it is NOT released to wallets here.
     """
-    await db.transactions.update_one(
-        {"_id": transaction["_id"]},
-        {"$set": {
-            "status": "success",
-            "escrow_status": "held",
-            "paid_at": datetime.now(timezone.utc),
-        }}
-    )
+    # One conditional update decides who handles this payment. Without it, a late
+    # webhook retry arriving after the money was released would put it back to "held",
+    # and it could be released a second time.
+    try:
+        claimed = await db.transactions.find_one_and_update(
+            {"_id": transaction["_id"], "status": {"$in": ["pending", "failed", "cancelled"]}},
+            {"$set": {
+                "status": "success",
+                "escrow_status": "held",
+                "paid_at": datetime.now(timezone.utc),
+            }}
+        )
+    except DuplicateKeyError:
+        # The unique index allows only one paid transaction per project: two different
+        # links were paid at the same moment. The later one is refunded, not counted.
+        await _flag_for_refund(db, transaction, project=None, already_funded=True)
+        return False
+
+    if not claimed:
+        return False  # someone else already handled this payment
+
     # Two links can briefly exist (e.g. a double click). The project is paid now, so
     # retire any other unpaid link; a payment on it later is flagged for refund.
     await db.transactions.update_many(
@@ -245,6 +261,46 @@ async def _mark_transaction_successful(db, transaction: dict):
         {"$set": {"status": "cancelled", "cancelled_reason": "project_already_funded"}}
     )
     logger.info(f"Transaction {transaction['transaction_id']} marked successful, funds held in escrow")
+    return True
+
+
+async def _flag_for_refund(db, transaction: dict, project, already_funded: bool):
+    """Marks a payment as one that must be refunded, and tells the salesperson once."""
+    claimed = await db.transactions.find_one_and_update(
+        {"_id": transaction["_id"], "paid_while_cancelled": {"$ne": True}},
+        {"$set": {
+            "status": "cancelled",
+            "paid_while_cancelled": True,
+            "needs_refund": True,
+            "paid_at": datetime.now(timezone.utc),
+        }}
+    )
+    if not claimed:
+        return  # already flagged (a retry or the other path got here first)
+
+    logger.error(
+        f"Payment received on cancelled transaction {transaction['transaction_id']} "
+        f"(ref {transaction.get('paystack_reference')}, {settings.CURRENCY} {transaction['total_amount']:,.2f}): "
+        f"refund required"
+    )
+
+    if project is None:
+        project = await db.projects.find_one({"_id": transaction["project_id"]})
+    if project:
+        reason = "the project is already funded" if already_funded else "the price changed after that link was sent"
+        await db.notifications.insert_one({
+            "user_id": project["salesperson_id"],
+            "type": "payment_needs_refund",
+            "title": "Client paid an outdated link",
+            "description": (
+                f"{project.get('client_email', 'The client')} paid {settings.CURRENCY} "
+                f"{transaction['total_amount']:,.2f} for '{project['title']}', but {reason}. "
+                f"That payment will be refunded; ask the client to use the current link."
+            ),
+            "project_id": project["_id"],
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc),
+        })
 
 
 async def _handle_payment_on_cancelled(db, transaction: dict) -> str:
@@ -269,7 +325,9 @@ async def _handle_payment_on_cancelled(db, transaction: dict) -> str:
     ) is not None
 
     if project and project["status"] == "in_progress" and not already_funded and round_money(transaction["total_amount"]) == get_agreed_amount(project):
-        await _mark_transaction_successful(db, transaction)
+        if not await _mark_transaction_successful(db, transaction):
+            current = await db.transactions.find_one({"_id": transaction["_id"]})
+            return "accepted" if current and current["status"] == "success" else "flagged"
         await db.transactions.update_one(
             {"_id": transaction["_id"]},
             {"$set": {"accepted_after_cancel": True}}
@@ -284,35 +342,7 @@ async def _handle_payment_on_cancelled(db, transaction: dict) -> str:
         )
         return "accepted"
 
-    await db.transactions.update_one(
-        {"_id": transaction["_id"]},
-        {"$set": {
-            "paid_while_cancelled": True,
-            "needs_refund": True,
-            "paid_at": datetime.now(timezone.utc),
-        }}
-    )
-    logger.error(
-        f"Payment received on cancelled transaction {transaction['transaction_id']} "
-        f"(ref {transaction.get('paystack_reference')}, {settings.CURRENCY} {transaction['total_amount']:,.2f}): "
-        f"refund required"
-    )
-
-    if project:
-        reason = "the project is already funded" if already_funded else "the price changed after that link was sent"
-        await db.notifications.insert_one({
-            "user_id": project["salesperson_id"],
-            "type": "payment_needs_refund",
-            "title": "Client paid an outdated link",
-            "description": (
-                f"{project.get('client_email', 'The client')} paid {settings.CURRENCY} "
-                f"{transaction['total_amount']:,.2f} for '{project['title']}', but {reason}. "
-                f"That payment will be refunded; ask the client to use the current link."
-            ),
-            "project_id": project["_id"],
-            "is_read": False,
-            "created_at": datetime.now(timezone.utc),
-        })
+    await _flag_for_refund(db, transaction, project, already_funded)
     return "flagged"
 
 

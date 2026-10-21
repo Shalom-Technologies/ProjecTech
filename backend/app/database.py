@@ -31,6 +31,14 @@ async def connect_to_mongo():
     await db.transactions.create_index("transaction_id", unique=True)
     await db.transactions.create_index("paystack_reference")
     await db.transactions.create_index("project_id")
+    # A project can be paid for only once, even if two payments land at the same instant.
+    try:
+        await db.transactions.create_index(
+            "project_id", unique=True, partialFilterExpression={"status": "success"},
+            name="one_paid_transaction_per_project",
+        )
+    except Exception as e:  # noqa: BLE001 - old duplicate data would block it; app logic still guards
+        logger.error(f"Could not create the one-payment-per-project index (duplicates in existing data?): {e}")
     await db.transactions.create_index("status")
     await db.wallet_transactions.create_index("user_id")
     await db.wallet_transactions.create_index("paystack_reference")
