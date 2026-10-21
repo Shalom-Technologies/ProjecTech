@@ -319,9 +319,24 @@ async def get_project_payment_status(
     current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
+    project_oid = to_object_id(project_id)
     transaction = await db.transactions.find_one({
-        "project_id": to_object_id(project_id),
+        "project_id": project_oid,
         "status": "success",
     })
 
-    return {"is_funded": transaction is not None}
+    response = {
+        "is_funded": transaction is not None,
+        "transaction_id": None,
+        "escrow_status": None,
+    }
+
+    # Only the two people on the project may see the payment reference
+    if transaction and current_user["_id"] in (
+        transaction["salesperson_id"],
+        transaction["developer_id"],
+    ):
+        response["transaction_id"] = transaction["transaction_id"]
+        response["escrow_status"] = transaction["escrow_status"]
+
+    return response

@@ -22,7 +22,8 @@ export default function MyProjects() {
   const [payingProject, setPayingProject] = useState(null);
   const [reviewedMap, setReviewedMap] = useState({});
   const [reviewingProjectId, setReviewingProjectId] = useState(null);
-  const [fundedMap, setFundedMap] = useState({});
+  const [paymentMap, setPaymentMap] = useState({});
+  const [releasingId, setReleasingId] = useState(null);
   const navigate = useNavigate();
 
   const loadProjects = useCallback(async () => {
@@ -31,20 +32,16 @@ export default function MyProjects() {
       const res = await projectsApi.list({ per_page: 50 });
       setProjects(res.data.data);
 
-           const inProgress = res.data.data.filter((p) => p.status === "in_progress");
-      console.log("inProgress projects:", inProgress);
-
-      const fundedChecks = await Promise.all(
-        inProgress.map((p) =>
-          paymentsApi.getProjectStatus(p.id).then((r) => {
-            console.log(`Funding check for ${p.id}:`, r.data);
-            return [p.id, r.data.is_funded];
-          })
+      // Check funding/escrow state for every project that could have a payment
+      const needsPaymentCheck = res.data.data.filter(
+        (p) => p.status === "in_progress" || p.status === "completed"
+      );
+      const paymentChecks = await Promise.all(
+        needsPaymentCheck.map((p) =>
+          paymentsApi.getProjectStatus(p.id).then((r) => [p.id, r.data])
         )
       );
-      console.log("fundedChecks array:", fundedChecks);
-
-      setFundedMap(Object.fromEntries(fundedChecks));
+      setPaymentMap(Object.fromEntries(paymentChecks));
 
       const completed = res.data.data.filter((p) => p.status === "completed");
       const reviewChecks = await Promise.all(
@@ -77,6 +74,37 @@ export default function MyProjects() {
       );
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleRelease = async (project) => {
+    const payment = paymentMap[project.id];
+    if (!payment?.transaction_id) return;
+
+    if (
+      !window.confirm(
+        "Release this payment? The developer and you will be paid from the held funds. This cannot be undone."
+      )
+    ) {
+      return;
+    }
+
+    setReleasingId(project.id);
+    setError("");
+    try {
+      await paymentsApi.releaseEscrow(payment.transaction_id);
+      setPaymentMap((prev) => ({
+        ...prev,
+        [project.id]: { ...prev[project.id], escrow_status: "released" },
+      }));
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+          err.response?.data?.detail ||
+          "Could not release this payment."
+      );
+    } finally {
+      setReleasingId(null);
     }
   };
 
@@ -115,16 +143,30 @@ export default function MyProjects() {
                 {STATUS_LABELS[project.status] || project.status}
               </span>
 
-              {project.status === "in_progress" && fundedMap[project.id] && (
+              {project.status === "in_progress" && paymentMap[project.id]?.is_funded && (
                 <span className="status-badge status-funded">Funded</span>
               )}
 
+              {project.status === "completed" &&
+                paymentMap[project.id]?.escrow_status === "released" && (
+                  <span className="status-badge status-funded">Payment released</span>
+                )}
+
               <div className="project-row-actions">
-                {project.status === "in_progress" && !fundedMap[project.id] && (
+                {project.status === "in_progress" && !paymentMap[project.id]?.is_funded && (
                   <button onClick={() => setPayingProject(project)}>
                     Fund project
                   </button>
                 )}
+                {project.status === "completed" &&
+                  paymentMap[project.id]?.escrow_status === "held" && (
+                    <button
+                      onClick={() => handleRelease(project)}
+                      disabled={releasingId === project.id}
+                    >
+                      {releasingId === project.id ? "Releasing..." : "Release payment"}
+                    </button>
+                  )}
                 {project.status === "completed" &&
                   project.assigned_to &&
                   !reviewedMap[project.id] && (
