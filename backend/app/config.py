@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # The single currency the platform trades in (Kenya).
     CURRENCY: str = "KES"
 
+    # Sanity limits for any invoiced amount (in CURRENCY), to catch typos.
+    MIN_PAYMENT_AMOUNT: float = 100.0
+    MAX_PAYMENT_AMOUNT: float = 5_000_000.0
+
     DEVELOPER_COMMISSION: float = 0.45
     SALESPERSON_COMMISSION: float = 0.35
     PLATFORM_COMMISSION: float = 0.20

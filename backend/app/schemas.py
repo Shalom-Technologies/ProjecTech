@@ -93,7 +93,19 @@ class MessageResponse(BaseModel):
 
 class PaymentInitialize(BaseModel):
     project_id: str
+    # Optional: the amount is always the project's agreed price. If a client
+    # sends one anyway it must match, so a stale screen cannot charge a wrong sum.
+    amount: Optional[float] = Field(None, gt=0)
+
+
+class PriceProposalCreate(BaseModel):
     amount: float = Field(gt=0)
+    reason: str = Field(min_length=10, max_length=500)
+
+
+class PriceProposalDecision(BaseModel):
+    approve: bool
+    note: Optional[str] = Field(None, max_length=500)
 
 
 class PaymentVerify(BaseModel):

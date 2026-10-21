@@ -7,7 +7,8 @@ from bson.errors import InvalidId
 from app.config import settings
 from app.database import get_database
 from app.dependencies import get_current_user, require_role
-from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate
+from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate, PriceProposalCreate, PriceProposalDecision
+from app.pricing import get_agreed_amount, check_amount_limits, round_money, serialize_proposal
 
 router = APIRouter(prefix="/api/projects", tags=["Projects"])
 
@@ -155,6 +156,8 @@ async def get_my_assigned_projects(
             "description": p["description"],
             "category": p["category"],
             "budget": p["budget"],
+            "agreed_amount": get_agreed_amount(p),
+            "price_proposal": serialize_proposal(p.get("price_proposal")),
             "currency": p.get("currency", settings.CURRENCY),
             "status": p["status"],
             "deadline": p.get("deadline"),
@@ -391,6 +394,7 @@ async def accept_application(
             "$set": {
                 "applications.$.status": "accepted",
                 "assigned_to": application["developer_id"],
+                "agreed_amount": round_money(application["proposed_budget"]),
                 "assignment_date": datetime.now(timezone.utc),
                 "status": "in_progress",
                 "updated_at": datetime.now(timezone.utc),
@@ -469,3 +473,188 @@ async def reject_application(
         raise HTTPException(status_code=400, detail="Could not reject this application")
 
     return {"message": "Application rejected"}
+
+# ============================================================================
+# PRICE: the agreed amount, and proposals to change it
+#
+# The salesperson can ask for a different price at any time before the project
+# is funded, but the new price only takes effect once the assigned developer
+# approves it. Only the agreed price can be invoiced.
+# ============================================================================
+
+async def _is_funded(db, project_oid: ObjectId) -> bool:
+    return await db.transactions.find_one({"project_id": project_oid, "status": "success"}) is not None
+
+
+@router.get("/{project_id}/price")
+async def get_price(project_id: str, current_user: dict = Depends(get_current_user)):
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if current_user["_id"] not in (project["salesperson_id"], project.get("assigned_to")):
+        raise HTTPException(status_code=403, detail="Only the people working on this project can see its price")
+
+    return {
+        "agreed_amount": get_agreed_amount(project),
+        "currency": project.get("currency", settings.CURRENCY),
+        "price_proposal": serialize_proposal(project.get("price_proposal")),
+        "is_funded": await _is_funded(db, project["_id"]),
+    }
+
+
+@router.post("/{project_id}/price-proposal", status_code=status.HTTP_201_CREATED)
+async def propose_price(
+    project_id: str,
+    proposal: PriceProposalCreate,
+    current_user: dict = Depends(require_role("salesperson"))
+):
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project["salesperson_id"] != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="You can only change the price of your own projects")
+
+    if project["status"] != "in_progress" or not project.get("assigned_to"):
+        raise HTTPException(status_code=400, detail="A price can only be changed while a developer is working on the project")
+
+    if await _is_funded(db, project["_id"]):
+        raise HTTPException(status_code=400, detail="This project is already funded, so its price can no longer change")
+
+    amount = round_money(proposal.amount)
+    check_amount_limits(amount)
+
+    if amount == get_agreed_amount(project):
+        raise HTTPException(status_code=400, detail="That is already the agreed price")
+
+    await db.projects.update_one(
+        {"_id": project["_id"]},
+        {"$set": {
+            "price_proposal": {
+                "amount": amount,
+                "reason": proposal.reason.strip(),
+                "status": "pending",
+                "proposed_by": current_user["_id"],
+                "proposed_at": datetime.now(timezone.utc),
+                "responded_at": None,
+                "response_note": None,
+            },
+            "updated_at": datetime.now(timezone.utc),
+        }}
+    )
+
+    await db.notifications.insert_one({
+        "user_id": project["assigned_to"],
+        "type": "price_change_requested",
+        "title": "Price change needs your approval",
+        "description": (
+            f"The price for '{project['title']}' would change from "
+            f"{settings.CURRENCY} {get_agreed_amount(project):,.2f} to {settings.CURRENCY} {amount:,.2f}"
+        ),
+        "project_id": project["_id"],
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    return {"message": "Price change sent to the developer for approval"}
+
+
+@router.delete("/{project_id}/price-proposal")
+async def withdraw_price_proposal(
+    project_id: str,
+    current_user: dict = Depends(require_role("salesperson"))
+):
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project["salesperson_id"] != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="You can only change the price of your own projects")
+
+    result = await db.projects.update_one(
+        {"_id": project["_id"], "price_proposal.status": "pending"},
+        {"$set": {"price_proposal.status": "withdrawn", "price_proposal.responded_at": datetime.now(timezone.utc)}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=400, detail="There is no pending price change to withdraw")
+
+    return {"message": "Price change withdrawn"}
+
+
+@router.post("/{project_id}/price-proposal/respond")
+async def respond_to_price_proposal(
+    project_id: str,
+    decision: PriceProposalDecision,
+    current_user: dict = Depends(require_role("developer"))
+):
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project.get("assigned_to") != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the assigned developer can respond to a price change")
+
+    proposal = project.get("price_proposal")
+    if not proposal or proposal["status"] != "pending":
+        raise HTTPException(status_code=400, detail="There is no pending price change to respond to")
+
+    if decision.approve and await _is_funded(db, project["_id"]):
+        raise HTTPException(status_code=400, detail="This project is already funded, so its price can no longer change")
+
+    new_status = "approved" if decision.approve else "rejected"
+    changes = {
+        "price_proposal.status": new_status,
+        "price_proposal.responded_at": datetime.now(timezone.utc),
+        "price_proposal.response_note": decision.note.strip() if decision.note else None,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if decision.approve:
+        changes["agreed_amount"] = proposal["amount"]
+
+    # Conditional on the proposal still being the same pending one we looked at,
+    # so a double click, or a proposal replaced in the meantime, cannot slip through.
+    result = await db.projects.update_one(
+        {
+            "_id": project["_id"],
+            "assigned_to": current_user["_id"],
+            "price_proposal.status": "pending",
+            "price_proposal.amount": proposal["amount"],
+        },
+        {"$set": changes}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=409, detail="This price change was updated by the salesperson. Please review it again.")
+
+    if decision.approve:
+        # Any unpaid payment link was created at the old price and must not be payable any more.
+        await db.transactions.update_many(
+            {"project_id": project["_id"], "status": "pending"},
+            {"$set": {"status": "cancelled", "cancelled_reason": "price_changed"}}
+        )
+
+    await db.notifications.insert_one({
+        "user_id": project["salesperson_id"],
+        "type": "price_change_approved" if decision.approve else "price_change_rejected",
+        "title": "Price change approved" if decision.approve else "Price change declined",
+        "description": (
+            f"The developer {'approved' if decision.approve else 'declined'} "
+            f"{settings.CURRENCY} {proposal['amount']:,.2f} for '{project['title']}'"
+        ),
+        "project_id": project["_id"],
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    return {
+        "message": "Price change approved" if decision.approve else "Price change declined",
+        "agreed_amount": proposal["amount"] if decision.approve else get_agreed_amount(project),
+    }

@@ -15,6 +15,7 @@ from app.paystack_client import paystack
 from app.config import settings
 from app.rate_limit import limiter
 from app.wallet import refund_withdrawal
+from app.pricing import get_agreed_amount, check_amount_limits, round_money
 
 
 logger = logging.getLogger(__name__)
@@ -52,15 +53,48 @@ async def initialize_payment(
     if not project.get("assigned_to"):
         raise HTTPException(status_code=400, detail="Project has no assigned developer yet")
 
-    # Prevent double payment
-    existing = await db.transactions.find_one({
-        "project_id": project["_id"],
-        "status": {"$in": ["pending", "success"]}
-    })
-    if existing:
-        raise HTTPException(status_code=400, detail="A payment already exists for this project")
+    # The invoice is always for the agreed price. It can only change through a
+    # price proposal that the assigned developer has approved.
+    amount = get_agreed_amount(project)
 
-    amount = payment_data.amount
+    if payment_data.amount is not None and round_money(payment_data.amount) != amount:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The agreed price is {settings.CURRENCY} {amount:,.2f}. "
+                "To invoice a different amount, request a price change and wait for the developer to approve it."
+            ),
+        )
+
+    proposal = project.get("price_proposal")
+    if proposal and proposal["status"] == "pending":
+        raise HTTPException(
+            status_code=400,
+            detail="A price change is waiting for the developer's approval. Payment opens once they respond.",
+        )
+
+    check_amount_limits(amount)
+
+    # Never take payment twice for one project
+    if await db.transactions.find_one({"project_id": project["_id"], "status": "success"}):
+        raise HTTPException(status_code=400, detail="This project has already been paid for")
+
+    # An unpaid link already exists: hand the same one back instead of making another.
+    pending = await db.transactions.find_one({"project_id": project["_id"], "status": "pending"})
+    if pending:
+        if pending["total_amount"] == amount and pending.get("paystack_authorization_url"):
+            return {
+                "transaction_id": pending["transaction_id"],
+                "authorization_url": pending["paystack_authorization_url"],
+                "reference": pending["paystack_reference"],
+                "amount": amount,
+            }
+        # Stale (older price, or created before links were stored): retire it.
+        await db.transactions.update_many(
+            {"project_id": project["_id"], "status": "pending"},
+            {"$set": {"status": "cancelled", "cancelled_reason": "replaced"}}
+        )
+
     developer_amount = round(amount * settings.DEVELOPER_COMMISSION, 2)
     salesperson_amount = round(amount * settings.SALESPERSON_COMMISSION, 2)
     platform_amount = round(amount - developer_amount - salesperson_amount, 2)  # remainder avoids rounding drift
@@ -110,6 +144,7 @@ async def initialize_payment(
         {"$set": {
             "paystack_reference": data["reference"],
             "paystack_access_code": data["access_code"],
+            "paystack_authorization_url": data["authorization_url"],
         }}
     )
 
@@ -135,6 +170,9 @@ async def verify_payment(verify_data: PaymentVerify):
 
     if transaction["status"] == "success":
         return {"status": "success", "message": "Already verified", "transaction_id": transaction["transaction_id"]}
+
+    if transaction["status"] == "cancelled":
+        raise HTTPException(status_code=400, detail="This payment link is no longer valid. Ask for a new one.")
 
     try:
         paystack_response = await paystack.verify_transaction(verify_data.reference)
@@ -201,7 +239,18 @@ async def paystack_webhook(request: Request):
     if event == "charge.success":
         reference = data.get("reference")
         transaction = await db.transactions.find_one({"paystack_reference": reference})
-        if transaction and transaction["status"] != "success":
+        if transaction and transaction["status"] == "cancelled":
+            # The link was retired (price changed) but the client paid it anyway.
+            # Do not count it towards the project; flag it so it can be refunded.
+            await db.transactions.update_one(
+                {"_id": transaction["_id"]},
+                {"$set": {"paid_while_cancelled": True, "paid_at": datetime.now(timezone.utc)}}
+            )
+            logger.error(
+                f"Payment received on cancelled transaction {transaction['transaction_id']} "
+                f"(ref {reference}): manual refund required"
+            )
+        elif transaction and transaction["status"] != "success":
             await _mark_transaction_successful(db, transaction)
 
     elif event in ("transfer.success", "transfer.failed", "transfer.reversed"):

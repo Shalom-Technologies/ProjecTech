@@ -18,6 +18,8 @@ export default function MyDevProjects() {
   const [error, setError] = useState("");
   const [reviewedMap, setReviewedMap] = useState({});
   const [reviewingProjectId, setReviewingProjectId] = useState(null);
+  const [respondingId, setRespondingId] = useState(null);
+  const [decisionNotes, setDecisionNotes] = useState({});
 
     const loadProjects = useCallback(async (status) => {
     setLoading(true);
@@ -44,6 +46,28 @@ export default function MyDevProjects() {
   useEffect(() => {
     loadProjects(activeTab);
   }, [activeTab, loadProjects]);
+
+  const handlePriceDecision = async (project, approve) => {
+    setRespondingId(project.id);
+    setError("");
+    try {
+      await projectsApi.respondToPriceProposal(project.id, {
+        approve,
+        note: decisionNotes[project.id]?.trim() || null,
+      });
+      await loadProjects(activeTab);
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setError(
+        err.response?.data?.message ||
+          (Array.isArray(detail) ? detail[0]?.msg : detail) ||
+          "Could not send your response."
+      );
+      await loadProjects(activeTab);
+    } finally {
+      setRespondingId(null);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -87,7 +111,7 @@ export default function MyDevProjects() {
               <Link to={`/dashboard/browse/${project.id}`} className="project-row-main">
                 <div className="project-row-title">{project.title}</div>
                 <div className="project-row-meta">
-                  KES{project.budget.toLocaleString()} · Assigned{" "}
+                  KES{(project.agreed_amount ?? project.budget).toLocaleString()} · Assigned{" "}
                   {new Date(project.assignment_date).toLocaleDateString()}
                 </div>
               </Link>
@@ -107,6 +131,46 @@ export default function MyDevProjects() {
                 </button>
               )}
             </div>
+
+            {project.status === "in_progress" &&
+              project.price_proposal?.status === "pending" && (
+                <div className="modal-note">
+                  <p>
+                    <strong>Price change requested:</strong> KES
+                    {project.agreed_amount.toLocaleString()} → KES
+                    {project.price_proposal.amount.toLocaleString()}
+                  </p>
+                  <p>Reason: {project.price_proposal.reason}</p>
+                  <p>
+                    Your earnings are calculated from this price, and the client cannot be
+                    invoiced until you respond.
+                  </p>
+                  <div className="field">
+                    <label htmlFor={`note-${project.id}`}>Note to the salesperson (optional)</label>
+                    <input
+                      id={`note-${project.id}`}
+                      maxLength={500}
+                      value={decisionNotes[project.id] || ""}
+                      onChange={(e) =>
+                        setDecisionNotes((prev) => ({ ...prev, [project.id]: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <button
+                    onClick={() => handlePriceDecision(project, true)}
+                    disabled={respondingId === project.id}
+                  >
+                    Approve new price
+                  </button>{" "}
+                  <button
+                    className="btn-secondary"
+                    onClick={() => handlePriceDecision(project, false)}
+                    disabled={respondingId === project.id}
+                  >
+                    Decline
+                  </button>
+                </div>
+              )}
 
             {reviewingProjectId === project.id && (
               <ReviewForm

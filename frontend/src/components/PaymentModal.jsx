@@ -1,35 +1,99 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { paymentsApi } from "../services/payments";
+import { projectsApi } from "../services/projects";
+
+function errorMessage(err, fallback) {
+  const detail = err.response?.data?.detail;
+  return (
+    err.response?.data?.message ||
+    (Array.isArray(detail) ? detail[0]?.msg : detail) ||
+    fallback
+  );
+}
 
 export default function PaymentModal({ project, onClose }) {
-  const [amount, setAmount] = useState(project.budget);
+  const [price, setPrice] = useState(null);
+  const [loadingPrice, setLoadingPrice] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [paymentLink, setPaymentLink] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const handleGenerate = async (e) => {
+  const [showChangeForm, setShowChangeForm] = useState(false);
+  const [newAmount, setNewAmount] = useState("");
+  const [reason, setReason] = useState("");
+
+  const loadPrice = useCallback(async () => {
+    try {
+      const res = await projectsApi.getPrice(project.id);
+      setPrice(res.data);
+    } catch (err) {
+      setError(errorMessage(err, "Could not load the project price."));
+    } finally {
+      setLoadingPrice(false);
+    }
+  }, [project.id]);
+
+  useEffect(() => {
+    loadPrice();
+  }, [loadPrice]);
+
+  const proposal = price?.price_proposal;
+  const awaitingApproval = proposal?.status === "pending";
+  const wasDeclined = proposal?.status === "rejected";
+
+  const handleGenerate = async () => {
+    setError("");
+    setSubmitting(true);
+    try {
+      // No amount is sent: the server always invoices the agreed price.
+      const res = await paymentsApi.initialize({ project_id: project.id });
+      setPaymentLink(res.data.authorization_url);
+    } catch (err) {
+      setError(errorMessage(err, "Could not generate payment link."));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePropose = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (!amount || Number(amount) <= 0) {
-      setError("Enter a valid amount.");
+    if (!newAmount || Number(newAmount) <= 0) {
+      setError("Enter the new price.");
+      return;
+    }
+    if (reason.trim().length < 10) {
+      setError("Give a short reason (at least 10 characters) so the developer understands the change.");
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await paymentsApi.initialize({
-        project_id: project.id,
-        amount: Number(amount),
+      await projectsApi.proposePrice(project.id, {
+        amount: Number(newAmount),
+        reason: reason.trim(),
       });
-      setPaymentLink(res.data.authorization_url);
+      setShowChangeForm(false);
+      setNewAmount("");
+      setReason("");
+      await loadPrice();
     } catch (err) {
-      setError(
-        err.response?.data?.message ||
-          err.response?.data?.detail ||
-          "Could not generate payment link."
-      );
+      setError(errorMessage(err, "Could not send the price change."));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    setError("");
+    setSubmitting(true);
+    try {
+      await projectsApi.withdrawPriceProposal(project.id);
+      await loadPrice();
+    } catch (err) {
+      setError(errorMessage(err, "Could not withdraw the price change."));
     } finally {
       setSubmitting(false);
     }
@@ -52,30 +116,108 @@ export default function PaymentModal({ project, onClose }) {
         <p className="modal-subtitle">{project.title}</p>
 
         {error && <div className="form-error-banner">{error}</div>}
+        {loadingPrice && <p>Loading price...</p>}
 
-        {!paymentLink ? (
-          <form onSubmit={handleGenerate}>
-            <div className="field">
-              <label htmlFor="amount">Amount to invoice (KES)</label>
-              <input
-                id="amount"
-                type="number"
-                min="1"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </div>
-
-            <p className="modal-note">
-              This creates a payment link for {project.client_email} to pay directly.
-              Funds are held securely until the project is marked complete.
+        {!loadingPrice && price && !paymentLink && (
+          <>
+            <p>
+              Agreed price: <strong>KES{price.agreed_amount.toLocaleString()}</strong>
             </p>
 
-            <button type="submit" disabled={submitting}>
-              {submitting ? "Generating link..." : "Generate payment link"}
-            </button>
-          </form>
-        ) : (
+            {awaitingApproval && (
+              <div className="modal-note">
+                <p>
+                  Waiting for the developer to approve a price change to{" "}
+                  <strong>KES{proposal.amount.toLocaleString()}</strong>.
+                </p>
+                <p>Reason: {proposal.reason}</p>
+                <p>You can create the payment link as soon as they respond.</p>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleWithdraw}
+                  disabled={submitting}
+                >
+                  Withdraw this request
+                </button>
+              </div>
+            )}
+
+            {wasDeclined && (
+              <div className="modal-note">
+                <p>
+                  The developer declined a price of KES{proposal.amount.toLocaleString()}
+                  {proposal.response_note ? `: "${proposal.response_note}"` : "."}
+                </p>
+                <p>The price stays at KES{price.agreed_amount.toLocaleString()}.</p>
+              </div>
+            )}
+
+            {!awaitingApproval && (
+              <>
+                <p className="modal-note">
+                  This creates a payment link for {project.client_email} to pay directly.
+                  Funds are held securely until the project is marked complete.
+                </p>
+                <button type="button" onClick={handleGenerate} disabled={submitting}>
+                  {submitting ? "Generating link..." : "Generate payment link"}
+                </button>
+              </>
+            )}
+
+            {!awaitingApproval && !price.is_funded && (
+              <div style={{ marginTop: "1rem" }}>
+                {!showChangeForm ? (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setShowChangeForm(true)}
+                  >
+                    Request a different price
+                  </button>
+                ) : (
+                  <form onSubmit={handlePropose}>
+                    <p className="modal-note">
+                      The developer must approve any change before you can invoice it.
+                    </p>
+                    <div className="field">
+                      <label htmlFor="newAmount">New price (KES)</label>
+                      <input
+                        id="newAmount"
+                        type="number"
+                        min="1"
+                        value={newAmount}
+                        onChange={(e) => setNewAmount(e.target.value)}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="reason">Reason for the change</label>
+                      <textarea
+                        id="reason"
+                        rows={3}
+                        maxLength={500}
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                      />
+                    </div>
+                    <button type="submit" disabled={submitting}>
+                      {submitting ? "Sending..." : "Send to developer for approval"}
+                    </button>{" "}
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setShowChangeForm(false)}
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {paymentLink && (
           <div className="payment-link-box">
             <p>Send this link to your client to complete payment:</p>
             <div className="link-display">
