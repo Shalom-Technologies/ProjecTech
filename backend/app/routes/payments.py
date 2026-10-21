@@ -53,11 +53,22 @@ async def initialize_payment(
     if not project.get("assigned_to"):
         raise HTTPException(status_code=400, detail="Project has no assigned developer yet")
 
+    return await create_or_get_payment_link(db, project, payment_data.amount)
+
+
+async def create_or_get_payment_link(db, project: dict, requested_amount: float | None = None) -> dict:
+    """
+    Returns the Paystack payment link for a project's agreed price, creating it if needed.
+
+    Shared by the salesperson's /initialize call and the client's public invoice page,
+    so both follow exactly the same rules: the agreed price only, nothing while a price
+    change awaits approval, never twice for one project, and one live link at a time.
+    """
     # The invoice is always for the agreed price. It can only change through a
     # price proposal that the assigned developer has approved.
     amount = get_agreed_amount(project)
 
-    if payment_data.amount is not None and round_money(payment_data.amount) != amount:
+    if requested_amount is not None and round_money(requested_amount) != amount:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -104,7 +115,7 @@ async def initialize_payment(
     transaction_doc = {
         "transaction_id": transaction_id,
         "project_id": project["_id"],
-        "salesperson_id": current_user["_id"],
+        "salesperson_id": project["salesperson_id"],
         "developer_id": project["assigned_to"],
         "total_amount": amount,
         "currency": settings.CURRENCY,
@@ -224,6 +235,12 @@ async def _mark_transaction_successful(db, transaction: dict):
             "escrow_status": "held",
             "paid_at": datetime.now(timezone.utc),
         }}
+    )
+    # Two links can briefly exist (e.g. a double click). The project is paid now, so
+    # retire any other unpaid link; a payment on it later is flagged for refund.
+    await db.transactions.update_many(
+        {"project_id": transaction["project_id"], "status": "pending", "_id": {"$ne": transaction["_id"]}},
+        {"$set": {"status": "cancelled", "cancelled_reason": "project_already_funded"}}
     )
     logger.info(f"Transaction {transaction['transaction_id']} marked successful, funds held in escrow")
 

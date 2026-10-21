@@ -18,6 +18,7 @@ async def connect_to_mongo():
     await db.users.create_index("email", unique=True)
     await db.projects.create_index("salesperson_id")
     await db.projects.create_index("assigned_to")
+    await db.projects.create_index("invoice_token", unique=True, sparse=True)
     await db.projects.create_index("status")
     await db.projects.create_index("category")
     await db.projects.create_index([("created_at", -1)])

@@ -16,7 +16,7 @@ from app.error_handlers import (
     http_exception_handler,
     general_exception_handler,
 )
-from app.routes import auth, projects, messages, conversations, notifications, ws, payments, users
+from app.routes import auth, projects, messages, conversations, notifications, ws, payments, users, invoices
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ app.include_router(ws.router)
 app.include_router(payments.router)
 app.include_router(users.router)
 app.include_router(reviews.router)
+app.include_router(invoices.router)
 
 @app.get("/health")
 async def health_check():

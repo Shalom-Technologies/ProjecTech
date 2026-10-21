@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { paymentsApi } from "../services/payments";
 import { projectsApi } from "../services/projects";
+import { invoicesApi } from "../services/invoices";
 
 function errorMessage(err, fallback) {
   const detail = err.response?.data?.detail;
@@ -46,11 +46,12 @@ export default function PaymentModal({ project, onClose }) {
     setError("");
     setSubmitting(true);
     try {
-      // No amount is sent: the server always invoices the agreed price.
-      const res = await paymentsApi.initialize({ project_id: project.id });
-      setPaymentLink(res.data.authorization_url);
+      // The invoice link is permanent for this project. The client always sees the
+      // current agreed price, and a fresh checkout is created when they press "Pay".
+      const res = await invoicesApi.getLinkForProject(project.id);
+      setPaymentLink(res.data.invoice_url);
     } catch (err) {
-      setError(errorMessage(err, "Could not generate payment link."));
+      setError(errorMessage(err, "Could not get the client payment link."));
     } finally {
       setSubmitting(false);
     }
@@ -156,11 +157,12 @@ export default function PaymentModal({ project, onClose }) {
             {!awaitingApproval && (
               <>
                 <p className="modal-note">
-                  This creates a payment link for {project.client_email} to pay directly.
-                  Funds are held securely until the project is marked complete.
+                  This gives you a link to send to your client ({project.client_email}).
+                  They'll see the project and the agreed price, and pay securely. Funds are
+                  held until the project is marked complete.
                 </p>
                 <button type="button" onClick={handleGenerate} disabled={submitting}>
-                  {submitting ? "Generating link..." : "Generate payment link"}
+                  {submitting ? "Getting link..." : "Get client payment link"}
                 </button>
               </>
             )}
@@ -219,7 +221,7 @@ export default function PaymentModal({ project, onClose }) {
 
         {paymentLink && (
           <div className="payment-link-box">
-            <p>Send this link to your client to complete payment:</p>
+            <p>Send this link to your client. It stays the same even if the price changes:</p>
             <div className="link-display">
               <input readOnly value={paymentLink} onFocus={(e) => e.target.select()} />
               <button type="button" onClick={handleCopy}>

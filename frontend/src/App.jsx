@@ -24,6 +24,7 @@ import TransactionHistory from "./pages/TransactionHistory";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import PaymentVerify from "./pages/PaymentVerify";
+import InvoicePage from "./pages/InvoicePage";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
 import Home from "./pages/Home";
@@ -163,6 +164,7 @@ function App() {
 
             {/* Wallet routes */}
             <Route path="/payment/verify" element={<PaymentVerify />} />
+            <Route path="/pay/:token" element={<InvoicePage />} />
             <Route
               path="/dashboard/wallet"
               element={
