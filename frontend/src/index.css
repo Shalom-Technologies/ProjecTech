@@ -528,6 +528,8 @@ button:disabled {
 .status-accepted { background: var(--accent-tint); color: var(--accent); }
 .status-rejected { background: var(--danger-tint); color: var(--danger); }
 .status-funded { background: var(--info-tint); color: var(--info); }
+.status-delivered, .status-held { background: var(--info-tint); color: var(--info); }
+.status-disputed { background: var(--warn-tint); color: var(--warn); }
 .status-failed { background: var(--danger-tint); color: var(--danger); }
 .status-reversed { background: var(--danger-tint); color: var(--danger); }
 

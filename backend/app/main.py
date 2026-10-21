@@ -5,11 +5,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
+import asyncio
 import logging
 from app.routes import reviews
 
 from app.config import settings
-from app.database import connect_to_mongo, close_mongo_connection
+from app.database import connect_to_mongo, close_mongo_connection, get_database
+from app.delivery import run_periodic_jobs
 from app.rate_limit import limiter
 from app.error_handlers import (
     validation_exception_handler,
@@ -22,10 +24,28 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+async def _background_loop():
+    """Releases deliveries whose review window ended and payout holds that matured."""
+    while True:
+        try:
+            await run_periodic_jobs(get_database())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - one bad run must not stop the loop
+            logger.exception("Background job failed")
+        await asyncio.sleep(settings.BACKGROUND_JOB_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
+    task = asyncio.create_task(_background_loop())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     await close_mongo_connection()
 
 

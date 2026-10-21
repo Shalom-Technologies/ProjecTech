@@ -45,6 +45,9 @@ export default function TransactionHistory() {
                 {t.status && t.status !== "success" && (
                   <span className={`status-badge status-${t.status}`}> {t.status}</span>
                 )}
+                {t.status === "held" && t.available_at && (
+                  <span> · available from {new Date(t.available_at).toLocaleDateString()}</span>
+                )}
               </div>
             </div>
             <div

@@ -16,6 +16,8 @@ from app.config import settings
 from app.rate_limit import limiter
 from app.wallet import refund_withdrawal
 from app.pricing import get_agreed_amount, check_amount_limits, round_money
+from app.escrow import settle_escrow
+from app.delivery import accept_delivery, serialize_delivery, serialize_dispute
 
 
 logger = logging.getLogger(__name__)
@@ -266,7 +268,7 @@ async def _handle_payment_on_cancelled(db, transaction: dict) -> str:
         {"project_id": transaction["project_id"], "status": "success"}
     ) is not None
 
-    if project and not already_funded and round_money(transaction["total_amount"]) == get_agreed_amount(project):
+    if project and project["status"] == "in_progress" and not already_funded and round_money(transaction["total_amount"]) == get_agreed_amount(project):
         await _mark_transaction_successful(db, transaction)
         await db.transactions.update_one(
             {"_id": transaction["_id"]},
@@ -387,12 +389,16 @@ async def _handle_transfer_event(db, event: str, data: dict):
 @router.post("/{transaction_id}/release")
 async def release_escrow(
     transaction_id: str,
-    current_user: dict = Depends(require_role("salesperson"))
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Releases held funds to developer & salesperson wallets.
-    Only the salesperson who owns the project can trigger this,
-    and only once the project is marked 'completed'.
+    Safety net, not the normal path. Money is released automatically when the client accepts
+    the delivery or the review window ends. This lets either person on the project finish a
+    release that did not complete (for example if the server restarted halfway), or trigger
+    the release of a delivery whose review window has just ended.
+
+    It can never release money early: it requires an accepted delivery, or a delivery whose
+    window has ended, with no open problem report.
     """
     db = get_database()
     transaction = await db.transactions.find_one({"transaction_id": transaction_id})
@@ -400,7 +406,7 @@ async def release_escrow(
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    if transaction["salesperson_id"] != current_user["_id"]:
+    if current_user["_id"] not in (transaction["salesperson_id"], transaction["developer_id"]):
         raise HTTPException(status_code=403, detail="Not authorized for this transaction")
 
     if transaction["status"] != "success":
@@ -410,55 +416,38 @@ async def release_escrow(
         raise HTTPException(status_code=400, detail=f"Funds already {transaction['escrow_status']}")
 
     project = await db.projects.find_one({"_id": transaction["project_id"]})
-    if not project or project["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Project must be marked completed before funds are released")
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
 
-    breakdown = transaction["commission_breakdown"]
+    if (project.get("dispute") or {}).get("status") == "open":
+        raise HTTPException(status_code=400, detail="A problem report is open. The payment is held until it is resolved.")
 
-    # Credit wallets
-    await db.users.update_one(
-        {"_id": transaction["developer_id"]},
-        {"$inc": {"wallet_balance": breakdown["developer_amount"], "total_earned": breakdown["developer_amount"]}}
+    delivery = project.get("delivery") or {}
+    now = datetime.now(timezone.utc)
+
+    if delivery.get("status") == "accepted":
+        # Accepted earlier, but the release did not finish. Finish it.
+        result = await settle_escrow(db, transaction)
+        if result is None:
+            raise HTTPException(status_code=400, detail="Funds were already settled")
+        return {"message": "Payment released", "breakdown": result["breakdown"]}
+
+    if delivery.get("status") == "delivered":
+        deadline = delivery["review_deadline"]
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        if deadline > now:
+            raise HTTPException(
+                status_code=400,
+                detail=f"The client has until {deadline:%d %b %Y} to review the work. The payment is released when they accept or the time ends.",
+            )
+        await accept_delivery(db, project, "auto")
+        return {"message": "Payment released"}
+
+    raise HTTPException(
+        status_code=400,
+        detail="The work has not been marked delivered yet. The payment is released after the client accepts it.",
     )
-    await db.users.update_one(
-        {"_id": transaction["salesperson_id"]},
-        {"$inc": {"wallet_balance": breakdown["salesperson_amount"], "total_earned": breakdown["salesperson_amount"]}}
-    )
-
-    await db.transactions.update_one(
-        {"_id": transaction["_id"]},
-        {"$set": {"escrow_status": "released", "released_at": datetime.now(timezone.utc)}}
-    )
-
-    # Wallet ledger entries
-    for user_id, amount, desc in [
-        (transaction["developer_id"], breakdown["developer_amount"], "Project earnings"),
-        (transaction["salesperson_id"], breakdown["salesperson_amount"], "Sales commission"),
-    ]:
-        await db.wallet_transactions.insert_one({
-            "user_id": user_id,
-            "transaction_type": "commission",
-            "amount": amount,
-            "related_transaction_id": transaction["_id"],
-            "description": desc,
-            "created_at": datetime.now(timezone.utc),
-        })
-
-    # Notifications
-    for user_id, amount in [
-        (transaction["developer_id"], breakdown["developer_amount"]),
-        (transaction["salesperson_id"], breakdown["salesperson_amount"]),
-    ]:
-        await db.notifications.insert_one({
-            "user_id": user_id,
-            "type": "payment_confirmed",
-            "title": "Payment released",
-            "description": f"{settings.CURRENCY} {amount:,.2f} has been added to your wallet",
-            "is_read": False,
-            "created_at": datetime.now(timezone.utc),
-        })
-
-    return {"message": "Escrow released successfully", "breakdown": breakdown}
 
 
 # ============================================================================
@@ -503,6 +492,9 @@ async def get_project_payment_status(
         "is_funded": transaction is not None,
         "transaction_id": None,
         "escrow_status": None,
+        "delivery": None,
+        "dispute": None,
+        "refunded_amount": None,
     }
 
     # Only the two people on the project may see the payment reference
@@ -512,5 +504,10 @@ async def get_project_payment_status(
     ):
         response["transaction_id"] = transaction["transaction_id"]
         response["escrow_status"] = transaction["escrow_status"]
+        response["refunded_amount"] = transaction.get("refunded_amount")
+        project = await db.projects.find_one({"_id": project_oid})
+        if project:
+            response["delivery"] = serialize_delivery(project)
+            response["dispute"] = serialize_dispute(project)
 
     return response

@@ -4,6 +4,7 @@ import DashboardLayout from "../components/DashboardLayout";
 import { projectsApi } from "../services/projects";
 import ReviewForm from "../components/ReviewForm";
 import { reviewsApi } from "../services/reviews";
+import ReportProblemForm from "../components/ReportProblemForm";
 
 const TABS = [
   { key: "in_progress", label: "Active" },
@@ -20,6 +21,9 @@ export default function MyDevProjects() {
   const [reviewingProjectId, setReviewingProjectId] = useState(null);
   const [respondingId, setRespondingId] = useState(null);
   const [decisionNotes, setDecisionNotes] = useState({});
+  const [deliveringId, setDeliveringId] = useState(null);
+  const [reportingId, setReportingId] = useState(null);
+  const [notice, setNotice] = useState("");
 
     const loadProjects = useCallback(async (status) => {
     setLoading(true);
@@ -69,6 +73,40 @@ export default function MyDevProjects() {
     }
   };
 
+  const handleDeliver = async (project) => {
+    if (
+      !window.confirm(
+        "Mark this project as delivered? The client then has 7 days to review it. If they do not object, the payment is released automatically."
+      )
+    ) {
+      return;
+    }
+    setDeliveringId(project.id);
+    setError("");
+    setNotice("");
+    try {
+      await projectsApi.deliver(project.id);
+      setNotice("Marked as delivered. The client has been asked to review the work.");
+      await loadProjects(activeTab);
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setError(
+        err.response?.data?.message ||
+          (Array.isArray(detail) ? detail[0]?.msg : detail) ||
+          "Could not mark this project as delivered."
+      );
+    } finally {
+      setDeliveringId(null);
+    }
+  };
+
+  const handleReport = async (project, reason) => {
+    await projectsApi.reportProblem(project.id, reason);
+    setReportingId(null);
+    setNotice("Your report was received. The payment will not be released until it has been reviewed.");
+    await loadProjects(activeTab);
+  };
+
   return (
     <DashboardLayout>
       <div className="page-header">
@@ -89,6 +127,7 @@ export default function MyDevProjects() {
 
       {loading && <p>Loading...</p>}
       {error && <div className="form-error-banner">{error}</div>}
+      {notice && <div className="success-banner">{notice}</div>}
 
       {!loading && projects.length === 0 && (
         <div className="empty-state">
@@ -118,6 +157,36 @@ export default function MyDevProjects() {
               <span className={`status-badge status-${project.status}`}>
                 {project.status.replace("_", " ")}
               </span>
+
+              {project.dispute?.status === "open" && (
+                <span className="status-badge status-disputed">Problem reported</span>
+              )}
+              {project.delivery?.status === "delivered" && project.status === "in_progress" && (
+                <span className="status-badge status-delivered">
+                  In client review until{" "}
+                  {new Date(project.delivery.review_deadline).toLocaleDateString()}
+                </span>
+              )}
+
+              {project.status === "in_progress" &&
+                project.is_funded &&
+                project.delivery?.status !== "delivered" &&
+                project.dispute?.status !== "open" && (
+                  <button onClick={() => handleDeliver(project)} disabled={deliveringId === project.id}>
+                    {deliveringId === project.id ? "Sending..." : "Mark as delivered"}
+                  </button>
+                )}
+
+              {project.status === "in_progress" &&
+                project.is_funded &&
+                project.dispute?.status !== "open" && (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => setReportingId(reportingId === project.id ? null : project.id)}
+                  >
+                    Report a problem
+                  </button>
+                )}
 
               {project.status === "completed" && !reviewedMap[project.id] && (
                 <button
@@ -171,6 +240,29 @@ export default function MyDevProjects() {
                   </button>
                 </div>
               )}
+
+            {project.status === "in_progress" && !project.is_funded && (
+              <div className="modal-note">
+                <p>Waiting for the client to pay. Start work once the project shows as funded.</p>
+              </div>
+            )}
+
+            {project.dispute?.status === "open" && (
+              <div className="modal-note">
+                <p>
+                  A problem was reported on this project. The payment is on hold until ProjecTech
+                  has reviewed it.
+                </p>
+              </div>
+            )}
+
+            {reportingId === project.id && (
+              <ReportProblemForm
+                intro="Describe what is wrong. The payment will not be released until ProjecTech has reviewed it."
+                onSubmit={(reason) => handleReport(project, reason)}
+                onCancel={() => setReportingId(null)}
+              />
+            )}
 
             {reviewingProjectId === project.id && (
               <ReviewForm

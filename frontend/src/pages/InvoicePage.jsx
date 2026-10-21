@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { invoicesApi } from "../services/invoices";
+import ReportProblemForm from "../components/ReportProblemForm";
 
 // Public page: the client opens this from the link the salesperson sent them.
 // No login. It always shows the current price and sends them to a fresh,
@@ -12,6 +13,14 @@ export default function InvoicePage() {
   const [loadError, setLoadError] = useState("");
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState("");
+  const [accepting, setAccepting] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const reload = async () => {
+    const res = await invoicesApi.view(token);
+    setInvoice(res.data);
+  };
 
   // Invoice links are private; keep them out of search engines.
   useEffect(() => {
@@ -53,6 +62,28 @@ export default function InvoicePage() {
       );
       setPaying(false);
     }
+  };
+
+  const handleAccept = async () => {
+    if (!window.confirm("Accept this work? The payment will be released to the team.")) return;
+    setPayError("");
+    setAccepting(true);
+    try {
+      await invoicesApi.accept(token);
+      setMessage("Thank you. The payment has been released.");
+      await reload();
+    } catch (err) {
+      setPayError(err.response?.data?.detail || "We couldn't record that. Please try again.");
+    } finally {
+      setAccepting(false);
+    }
+  };
+
+  const handleReport = async (reason) => {
+    await invoicesApi.reportProblem(token, reason);
+    setShowReport(false);
+    setMessage("Your report was received. The payment will not be released until it has been reviewed.");
+    await reload();
   };
 
   if (notFound) {
@@ -108,16 +139,81 @@ export default function InvoicePage() {
             </button>
             <p className="modal-note">
               You'll be taken to Paystack to pay by M-Pesa or card. The money is held
-              safely and only released to the developer once the project is complete.
+              safely. It is only released to the team after you accept the finished work,
+              or 7 days after it is delivered if you do not object.
             </p>
           </>
+        )}
+
+        {message && <div className="success-banner">{message}</div>}
+        {payError && invoice.status !== "payable" && (
+          <div className="form-error-banner">{payError}</div>
         )}
 
         {invoice.status === "paid" && (
           <>
             <div className="result-icon result-success">✓</div>
             <p>This invoice has been paid. Thank you!</p>
+            <p className="modal-note">
+              The money is held safely while the work is done. You will be able to review
+              it here once it is delivered. Something wrong already?
+            </p>
+            {!showReport && (
+              <button className="btn-secondary" onClick={() => setShowReport(true)}>
+                Report a problem
+              </button>
+            )}
           </>
+        )}
+
+        {invoice.status === "in_review" && (
+          <>
+            <p>
+              The work was delivered. Please review it by{" "}
+              <strong>{new Date(invoice.review_deadline).toLocaleDateString()}</strong>.
+            </p>
+            <p className="modal-note">
+              If it is as agreed, accept it to release the payment. If something is wrong,
+              report a problem and the payment stays on hold until ProjecTech has looked into
+              it. If you do nothing, the payment is released on that date.
+            </p>
+            {!showReport && (
+              <>
+                <button onClick={handleAccept} disabled={accepting}>
+                  {accepting ? "Please wait..." : "Accept the work"}
+                </button>{" "}
+                <button className="btn-secondary" onClick={() => setShowReport(true)}>
+                  Report a problem
+                </button>
+              </>
+            )}
+          </>
+        )}
+
+        {showReport && (invoice.status === "paid" || invoice.status === "in_review") && (
+          <ReportProblemForm
+            intro="Tell us what is wrong. We will not release the payment until we have looked into it."
+            onSubmit={handleReport}
+            onCancel={() => setShowReport(false)}
+          />
+        )}
+
+        {invoice.status === "disputed" && (
+          <p>
+            A problem was reported and the payment is on hold. ProjecTech will review it and
+            contact you.
+          </p>
+        )}
+
+        {invoice.status === "completed" && (
+          <>
+            <div className="result-icon result-success">✓</div>
+            <p>This project is complete and the payment has been released. Thank you!</p>
+          </>
+        )}
+
+        {invoice.status === "refunded" && (
+          <p>This payment was refunded. It can take a few days to reach your account.</p>
         )}
 
         {invoice.status === "awaiting_price_approval" && (

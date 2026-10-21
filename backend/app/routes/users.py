@@ -89,6 +89,8 @@ async def get_wallet(current_user: dict = Depends(get_current_user)):
     payout = current_user.get("payout_account")
     return {
         "wallet_balance": current_user.get("wallet_balance", 0.0),
+        # Released earnings still inside the payout hold. They become withdrawable on their own.
+        "pending_balance": max(round(current_user.get("pending_balance", 0.0), 2), 0.0),
         "total_earned": current_user.get("total_earned", 0.0),
         "currency": settings.CURRENCY,
         "payout_account": (
@@ -125,6 +127,7 @@ async def get_wallet_transactions(
                 "amount": t["amount"],
                 # Older entries have no status; they were already complete.
                 "status": t.get("status", "success"),
+                "available_at": t.get("available_at"),
                 "description": t.get("description"),
                 "created_at": t["created_at"],
             }

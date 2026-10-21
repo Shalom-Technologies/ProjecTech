@@ -108,6 +108,10 @@ class PriceProposalDecision(BaseModel):
     note: Optional[str] = Field(None, max_length=500)
 
 
+class ProblemReport(BaseModel):
+    reason: str = Field(min_length=10, max_length=1000)
+
+
 class PaymentVerify(BaseModel):
     reference: str
 

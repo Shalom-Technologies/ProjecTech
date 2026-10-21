@@ -88,6 +88,12 @@ export default function Wallet() {
           <div className="wallet-label">Available balance</div>
           <div className="wallet-value">KES{wallet.wallet_balance.toLocaleString()}</div>
         </div>
+        {wallet.pending_balance > 0 && (
+          <div className="wallet-card">
+            <div className="wallet-label">Pending (released, available soon)</div>
+            <div className="wallet-value">KES{wallet.pending_balance.toLocaleString()}</div>
+          </div>
+        )}
         <div className="wallet-card">
           <div className="wallet-label">Total earned</div>
           <div className="wallet-value">KES{wallet.total_earned.toLocaleString()}</div>

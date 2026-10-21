@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     MIN_PAYMENT_AMOUNT: float = 100.0
     MAX_PAYMENT_AMOUNT: float = 5_000_000.0
 
+    # Refund policy: days the client has to review delivered work (money is held,
+    # and released automatically at the end unless a problem is reported), and days
+    # released earnings wait before they can be withdrawn (protects against card chargebacks).
+    REVIEW_WINDOW_DAYS: int = 7
+    PAYOUT_HOLD_DAYS: int = 7
+
+    # How often the background job releases due deliveries and matured payout holds.
+    BACKGROUND_JOB_INTERVAL_SECONDS: int = 900
+
     DEVELOPER_COMMISSION: float = 0.45
     SALESPERSON_COMMISSION: float = 0.35
     PLATFORM_COMMISSION: float = 0.20

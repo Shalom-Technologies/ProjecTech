@@ -14,6 +14,10 @@ export const projectsApi = {
   rejectApplication: (projectId, applicationId) =>
     api.post(`/api/projects/${projectId}/applications/${applicationId}/reject`),
 
+  // Delivery and problem reports
+  deliver: (id) => api.post(`/api/projects/${id}/deliver`),
+  reportProblem: (id, reason) => api.post(`/api/projects/${id}/dispute`, { reason }),
+
   // Agreed price and price-change proposals
   getPrice: (id) => api.get(`/api/projects/${id}/price`),
   proposePrice: (id, data) => api.post(`/api/projects/${id}/price-proposal`, data),

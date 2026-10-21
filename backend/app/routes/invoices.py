@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from bson import ObjectId
 from bson.errors import InvalidId
-import secrets
 
 from app.config import settings
 from app.database import get_database
 from app.dependencies import require_role
 from app.pricing import get_agreed_amount
+from app.schemas import ProblemReport
+from app.delivery import ensure_invoice_token, invoice_url, accept_delivery, open_dispute
 from app.rate_limit import limiter
 from app.routes.payments import create_or_get_payment_link
 
@@ -19,13 +20,21 @@ router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
 # can never lead to a payment at an outdated price.
 
 
-def _invoice_url(token: str) -> str:
-    return f"{settings.FRONTEND_URL.rstrip('/')}/pay/{token}"
-
-
 async def _invoice_status(db, project: dict) -> str:
-    """payable | paid | awaiting_price_approval | unavailable"""
-    if await db.transactions.find_one({"project_id": project["_id"], "status": "success"}):
+    """
+    payable | awaiting_price_approval | unavailable, before payment
+    paid | in_review | disputed | completed | refunded, after payment
+    """
+    paid = await db.transactions.find_one({"project_id": project["_id"], "status": "success"})
+    if paid:
+        if paid.get("escrow_status") == "refunded":
+            return "refunded"
+        if (project.get("dispute") or {}).get("status") == "open":
+            return "disputed"
+        if project["status"] == "completed":
+            return "completed"
+        if (project.get("delivery") or {}).get("status") == "delivered":
+            return "in_review"
         return "paid"
     if project["status"] != "in_progress" or not project.get("assigned_to"):
         return "unavailable"
@@ -67,19 +76,8 @@ async def get_invoice_link(
     if not project.get("assigned_to"):
         raise HTTPException(status_code=400, detail="Project has no assigned developer yet")
 
-    token = project.get("invoice_token")
-    if not token:
-        token = secrets.token_urlsafe(24)
-        # Only set it if still missing, so two open tabs cannot create two different links.
-        result = await db.projects.update_one(
-            {"_id": project["_id"], "invoice_token": None},
-            {"$set": {"invoice_token": token}}
-        )
-        if result.modified_count == 0:
-            project = await db.projects.find_one({"_id": project["_id"]})
-            token = project["invoice_token"]
-
-    return {"invoice_token": token, "invoice_url": _invoice_url(token)}
+    token = await ensure_invoice_token(db, project)
+    return {"invoice_token": token, "invoice_url": invoice_url(token)}
 
 
 # ============================================================================
@@ -105,6 +103,8 @@ async def view_invoice(request: Request, token: str):
         "amount": get_agreed_amount(project),
         "currency": project.get("currency", settings.CURRENCY),
         "status": await _invoice_status(db, project),
+        "review_deadline": (project.get("delivery") or {}).get("review_deadline"),
+        "dispute_resolution": (project.get("dispute") or {}).get("resolution"),
     }
 
 
@@ -115,7 +115,7 @@ async def pay_invoice(request: Request, token: str):
     project = await _project_for_token(db, token)
 
     status = await _invoice_status(db, project)
-    if status == "paid":
+    if status in ("paid", "in_review", "disputed", "completed", "refunded"):
         raise HTTPException(status_code=400, detail="This invoice has already been paid")
     if status == "awaiting_price_approval":
         raise HTTPException(status_code=409, detail="The price is still being confirmed. Please try again shortly.")
@@ -124,3 +124,32 @@ async def pay_invoice(request: Request, token: str):
 
     link = await create_or_get_payment_link(db, project)
     return {"authorization_url": link["authorization_url"]}
+
+
+
+@router.post("/{token}/accept")
+@limiter.limit("10/minute")
+async def accept_invoice_delivery(request: Request, token: str):
+    """The client confirms the work is fine. This releases the payment."""
+    db = get_database()
+    project = await _project_for_token(db, token)
+
+    if await _invoice_status(db, project) != "in_review":
+        raise HTTPException(status_code=400, detail="There is no delivery waiting for your review")
+
+    await accept_delivery(db, project, "client")
+    return {"message": "Thank you. The payment has been released."}
+
+
+@router.post("/{token}/dispute")
+@limiter.limit("5/minute")
+async def report_invoice_problem(request: Request, token: str, report: ProblemReport):
+    """The client reports a problem. The payment stays held until ProjecTech has reviewed it."""
+    db = get_database()
+    project = await _project_for_token(db, token)
+
+    if await _invoice_status(db, project) not in ("paid", "in_review"):
+        raise HTTPException(status_code=400, detail="A problem can only be reported on a paid, unfinished project")
+
+    await open_dispute(db, project, "client", report.reason)
+    return {"message": "Your report was received. The payment will not be released until it has been reviewed."}

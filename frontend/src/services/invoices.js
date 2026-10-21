@@ -7,4 +7,6 @@ export const invoicesApi = {
   // Client (no login needed)
   view: (token) => api.get(`/api/invoices/${token}`),
   pay: (token) => api.post(`/api/invoices/${token}/pay`),
+  accept: (token) => api.post(`/api/invoices/${token}/accept`),
+  reportProblem: (token, reason) => api.post(`/api/invoices/${token}/dispute`, { reason }),
 };

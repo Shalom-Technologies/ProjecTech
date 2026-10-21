@@ -6,6 +6,7 @@ import { projectsApi } from "../services/projects";
 import ReviewForm from "../components/ReviewForm";
 import { reviewsApi } from "../services/reviews";
 import { paymentsApi } from "../services/payments";
+import ReportProblemForm from "../components/ReportProblemForm";
 
 const STATUS_LABELS = {
   open: "Open",
@@ -23,7 +24,8 @@ export default function MyProjects() {
   const [reviewedMap, setReviewedMap] = useState({});
   const [reviewingProjectId, setReviewingProjectId] = useState(null);
   const [paymentMap, setPaymentMap] = useState({});
-  const [releasingId, setReleasingId] = useState(null);
+  const [reportingId, setReportingId] = useState(null);
+  const [notice, setNotice] = useState("");
   const navigate = useNavigate();
 
   const loadProjects = useCallback(async () => {
@@ -34,7 +36,7 @@ export default function MyProjects() {
 
       // Check funding/escrow state for every project that could have a payment
       const needsPaymentCheck = res.data.data.filter(
-        (p) => p.status === "in_progress" || p.status === "completed"
+        (p) => ["in_progress", "completed", "cancelled"].includes(p.status)
       );
       const paymentChecks = await Promise.all(
         needsPaymentCheck.map((p) =>
@@ -77,35 +79,27 @@ export default function MyProjects() {
     }
   };
 
-  const handleRelease = async (project) => {
-    const payment = paymentMap[project.id];
-    if (!payment?.transaction_id) return;
+  const handleReport = async (project, reason) => {
+    await projectsApi.reportProblem(project.id, reason);
+    setReportingId(null);
+    setNotice("Your report was received. The payment will not be released until it has been reviewed.");
+    await loadProjects();
+  };
 
-    if (
-      !window.confirm(
-        "Release this payment? The developer and you will be paid from the held funds. This cannot be undone."
-      )
-    ) {
-      return;
+  // What the money is doing, in words, for a paid project.
+  const paymentBadge = (project) => {
+    const pay = paymentMap[project.id];
+    if (!pay?.is_funded) return null;
+    if (pay.dispute?.status === "open") return { text: "Problem reported", cls: "disputed" };
+    if (pay.escrow_status === "refunded") return { text: "Refunded to client", cls: "cancelled" };
+    if (pay.escrow_status === "released") return { text: "Payment released", cls: "funded" };
+    if (pay.delivery?.status === "delivered") {
+      return {
+        text: `In client review until ${new Date(pay.delivery.review_deadline).toLocaleDateString()}`,
+        cls: "delivered",
+      };
     }
-
-    setReleasingId(project.id);
-    setError("");
-    try {
-      await paymentsApi.releaseEscrow(payment.transaction_id);
-      setPaymentMap((prev) => ({
-        ...prev,
-        [project.id]: { ...prev[project.id], escrow_status: "released" },
-      }));
-    } catch (err) {
-      setError(
-        err.response?.data?.message ||
-          err.response?.data?.detail ||
-          "Could not release this payment."
-      );
-    } finally {
-      setReleasingId(null);
-    }
+    return { text: "Funded", cls: "funded" };
   };
 
   return (
@@ -119,6 +113,7 @@ export default function MyProjects() {
 
       {loading && <p>Loading projects...</p>}
       {error && <div className="form-error-banner">{error}</div>}
+      {notice && <div className="success-banner">{notice}</div>}
 
       {!loading && projects.length === 0 && (
         <div className="empty-state">
@@ -143,14 +138,11 @@ export default function MyProjects() {
                 {STATUS_LABELS[project.status] || project.status}
               </span>
 
-              {project.status === "in_progress" && paymentMap[project.id]?.is_funded && (
-                <span className="status-badge status-funded">Funded</span>
+              {paymentBadge(project) && (
+                <span className={`status-badge status-${paymentBadge(project).cls}`}>
+                  {paymentBadge(project).text}
+                </span>
               )}
-
-              {project.status === "completed" &&
-                paymentMap[project.id]?.escrow_status === "released" && (
-                  <span className="status-badge status-funded">Payment released</span>
-                )}
 
               <div className="project-row-actions">
                 {project.status === "in_progress" && !paymentMap[project.id]?.is_funded && (
@@ -158,13 +150,15 @@ export default function MyProjects() {
                     Fund project
                   </button>
                 )}
-                {project.status === "completed" &&
-                  paymentMap[project.id]?.escrow_status === "held" && (
+                {project.status === "in_progress" &&
+                  paymentMap[project.id]?.is_funded &&
+                  paymentMap[project.id]?.escrow_status === "held" &&
+                  paymentMap[project.id]?.dispute?.status !== "open" && (
                     <button
-                      onClick={() => handleRelease(project)}
-                      disabled={releasingId === project.id}
+                      className="btn-secondary"
+                      onClick={() => setReportingId(reportingId === project.id ? null : project.id)}
                     >
-                      {releasingId === project.id ? "Releasing..." : "Release payment"}
+                      Report a problem
                     </button>
                   )}
                 {project.status === "completed" &&
@@ -195,6 +189,23 @@ export default function MyProjects() {
                 </button>
               </div>
             </div>
+
+            {paymentMap[project.id]?.dispute?.status === "open" && (
+              <div className="modal-note">
+                <p>
+                  A problem was reported on this project. The payment is on hold until ProjecTech
+                  has reviewed it.
+                </p>
+              </div>
+            )}
+
+            {reportingId === project.id && (
+              <ReportProblemForm
+                intro="Describe what is wrong. The payment will not be released until ProjecTech has reviewed it."
+                onSubmit={(reason) => handleReport(project, reason)}
+                onCancel={() => setReportingId(null)}
+              />
+            )}
 
             {reviewingProjectId === project.id && (
               <ReviewForm

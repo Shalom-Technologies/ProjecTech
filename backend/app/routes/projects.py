@@ -7,7 +7,8 @@ from bson.errors import InvalidId
 from app.config import settings
 from app.database import get_database
 from app.dependencies import get_current_user, require_role
-from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate, PriceProposalCreate, PriceProposalDecision
+from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate, PriceProposalCreate, PriceProposalDecision, ProblemReport
+from app.delivery import deliver_project, open_dispute, serialize_delivery, serialize_dispute
 from app.pricing import get_agreed_amount, check_amount_limits, round_money, serialize_proposal
 
 router = APIRouter(prefix="/api/projects", tags=["Projects"])
@@ -147,6 +148,13 @@ async def get_my_assigned_projects(
     cursor = db.projects.find(query).sort("created_at", -1)
     projects = await cursor.to_list(length=100)
 
+    funded_ids = set()
+    if projects:
+        paid = db.transactions.find(
+            {"project_id": {"$in": [p["_id"] for p in projects]}, "status": "success"}
+        )
+        funded_ids = {t["project_id"] for t in await paid.to_list(length=None)}
+
     data = []
     for p in projects:
         salesperson = await db.users.find_one({"_id": p["salesperson_id"]})
@@ -160,6 +168,9 @@ async def get_my_assigned_projects(
             "price_proposal": serialize_proposal(p.get("price_proposal")),
             "currency": p.get("currency", settings.CURRENCY),
             "status": p["status"],
+            "is_funded": p["_id"] in funded_ids,
+            "delivery": serialize_delivery(p),
+            "dispute": serialize_dispute(p),
             "deadline": p.get("deadline"),
             "assignment_date": p.get("assignment_date"),
             "salesperson_id": str(p["salesperson_id"]),
@@ -223,15 +234,28 @@ async def update_project(
     if project["salesperson_id"] != current_user["_id"]:
         raise HTTPException(status_code=403, detail="You can only update your own projects")
 
-    if updates.status == "completed":
-        successful_payment = await db.transactions.find_one({
+    if updates.status is not None and updates.status != project["status"]:
+        if updates.status == "completed":
+            raise HTTPException(
+                status_code=400,
+                detail="A project is completed when the client accepts the delivered work. The developer marks it delivered first.",
+            )
+
+        funded = await db.transactions.find_one({
             "project_id": project["_id"],
             "status": "success",
         })
-        if not successful_payment:
+        if funded:
             raise HTTPException(
                 status_code=400,
-                detail="This project must be funded before it can be marked completed"
+                detail="This project has been paid for, so its status can no longer be changed here. If something is wrong, report a problem on it.",
+            )
+
+        if updates.status == "cancelled":
+            # Nobody should still be able to pay a project that was called off.
+            await db.transactions.update_many(
+                {"project_id": project["_id"], "status": "pending"},
+                {"$set": {"status": "cancelled", "cancelled_reason": "project_cancelled"}},
             )
 
     update_data = {k: v for k, v in updates.model_dump(exclude_unset=True).items() if v is not None}
@@ -658,3 +682,53 @@ async def respond_to_price_proposal(
         "message": "Price change approved" if decision.approve else "Price change declined",
         "agreed_amount": proposal["amount"] if decision.approve else get_agreed_amount(project),
     }
+
+
+
+# ============================================================================
+# DELIVERY AND PROBLEM REPORTS
+# ============================================================================
+
+@router.post("/{project_id}/deliver")
+async def mark_delivered(
+    project_id: str,
+    current_user: dict = Depends(require_role("developer"))
+):
+    """The assigned developer says the work is done. This starts the client's review window."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("assigned_to") != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the assigned developer can mark this delivered")
+
+    result = await deliver_project(db, project)
+    return {
+        "message": "Marked as delivered. The client now has time to review it.",
+        "review_deadline": result["review_deadline"],
+    }
+
+
+@router.post("/{project_id}/dispute", status_code=status.HTTP_201_CREATED)
+async def report_problem(
+    project_id: str,
+    report: ProblemReport,
+    current_user: dict = Depends(get_current_user)
+):
+    """The salesperson or developer on a paid project reports a problem. This freezes the release."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if current_user["_id"] == project["salesperson_id"]:
+        role = "salesperson"
+    elif current_user["_id"] == project.get("assigned_to"):
+        role = "developer"
+    else:
+        raise HTTPException(status_code=403, detail="Only the people on this project can report a problem")
+
+    await open_dispute(db, project, role, report.reason)
+    return {"message": "Your report was received. The payment will not be released until it has been reviewed."}

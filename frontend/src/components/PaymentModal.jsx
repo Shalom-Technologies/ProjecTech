@@ -159,7 +159,8 @@ export default function PaymentModal({ project, onClose }) {
                 <p className="modal-note">
                   This gives you a link to send to your client ({project.client_email}).
                   They'll see the project and the agreed price, and pay securely. Funds are
-                  held until the project is marked complete.
+                  held until the client accepts the finished work, or 7 days after delivery
+                  if they do not object.
                 </p>
                 <button type="button" onClick={handleGenerate} disabled={submitting}>
                   {submitting ? "Getting link..." : "Get client payment link"}
