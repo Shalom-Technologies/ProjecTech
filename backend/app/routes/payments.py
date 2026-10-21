@@ -14,6 +14,7 @@ from app.schemas import PaymentInitialize, PaymentVerify
 from app.paystack_client import paystack
 from app.config import settings
 from app.rate_limit import limiter
+from app.wallet import refund_withdrawal
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ async def initialize_payment(
         "salesperson_id": current_user["_id"],
         "developer_id": project["assigned_to"],
         "total_amount": amount,
-        "currency": project.get("currency", "NGN"),
+        "currency": settings.CURRENCY,
         "commission_breakdown": {
             "developer_amount": developer_amount,
             "salesperson_amount": salesperson_amount,
@@ -89,12 +90,13 @@ async def initialize_payment(
     try:
         paystack_response = await paystack.initialize_transaction(
             email=project["client_email"],
-            amount_kobo=int(amount * 100),
+            amount_kobo=int(round(amount * 100)),
             metadata={
                 "transaction_id": transaction_id,
                 "project_id": str(project["_id"]),
             },
             callback_url=f"{settings.FRONTEND_URL}/payment/verify",
+            currency=settings.CURRENCY,
         )
     except httpx.HTTPStatusError as e:
         await db.transactions.update_one({"_id": result.inserted_id}, {"$set": {"status": "failed"}})
@@ -202,8 +204,38 @@ async def paystack_webhook(request: Request):
         if transaction and transaction["status"] != "success":
             await _mark_transaction_successful(db, transaction)
 
+    elif event in ("transfer.success", "transfer.failed", "transfer.reversed"):
+        await _handle_transfer_event(db, event, data)
+
     # Always return 200 quickly so Paystack doesn't retry unnecessarily
     return {"status": "received"}
+
+
+async def _handle_transfer_event(db, event: str, data: dict):
+    """
+    Settles a withdrawal once Paystack reports the final outcome of the transfer.
+
+    Every step is a conditional update on the withdrawal's current status, so if
+    Paystack sends the same event twice (or sends failed then reversed), the
+    wallet is refunded at most once.
+    """
+    reference = data.get("reference")
+    if not reference:
+        return
+
+    if event == "transfer.success":
+        await db.wallet_transactions.update_one(
+            {"paystack_reference": reference, "transaction_type": "withdrawal", "status": "pending"},
+            {"$set": {"status": "success", "settled_at": datetime.now(timezone.utc)}},
+        )
+        return
+
+    # transfer.failed: only a still-pending withdrawal can fail.
+    # transfer.reversed: money was sent, then came back, so success -> reversed is valid too.
+    new_status = "failed" if event == "transfer.failed" else "reversed"
+    allowed_from = ["pending"] if event == "transfer.failed" else ["pending", "success"]
+
+    await refund_withdrawal(db, reference, new_status, allowed_from)
 
 
 # ============================================================================
@@ -279,7 +311,7 @@ async def release_escrow(
             "user_id": user_id,
             "type": "payment_confirmed",
             "title": "Payment released",
-            "description": f"KES{amount:,.2f} has been added to your wallet",
+            "description": f"{settings.CURRENCY} {amount:,.2f} has been added to your wallet",
             "is_read": False,
             "created_at": datetime.now(timezone.utc),
         })

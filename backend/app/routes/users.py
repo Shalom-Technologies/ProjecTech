@@ -2,12 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from datetime import datetime, timezone
 import httpx
 import logging
+import uuid
 
+from app.config import settings
 from app.database import get_database
 from app.dependencies import get_current_user
-from app.schemas import UserProfileUpdate, BankAccountAdd, WithdrawRequest
+from app.schemas import UserProfileUpdate, PayoutAccountAdd, WithdrawRequest
 from app.paystack_client import paystack
 from app.rate_limit import limiter
+from app.wallet import refund_withdrawal
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["Users"])
@@ -68,12 +71,26 @@ async def update_profile(
 # WALLET
 # ============================================================================
 
+def _mask_phone(phone: str) -> str:
+    # 0712345678 -> 07******78
+    return f"{phone[:2]}{'*' * (len(phone) - 4)}{phone[-2:]}"
+
+
 @router.get("/wallet")
 async def get_wallet(current_user: dict = Depends(get_current_user)):
+    payout = current_user.get("payout_account")
     return {
         "wallet_balance": current_user.get("wallet_balance", 0.0),
         "total_earned": current_user.get("total_earned", 0.0),
-        "currency": "NGN",
+        "currency": settings.CURRENCY,
+        "payout_account": (
+            {
+                "account_name": payout["account_name"],
+                "phone_number": _mask_phone(payout["phone_number"]),
+            }
+            if payout
+            else None
+        ),
     }
 
 
@@ -98,6 +115,8 @@ async def get_wallet_transactions(
                 "id": str(t["_id"]),
                 "transaction_type": t["transaction_type"],
                 "amount": t["amount"],
+                # Older entries have no status; they were already complete.
+                "status": t.get("status", "success"),
                 "description": t.get("description"),
                 "created_at": t["created_at"],
             }
@@ -111,102 +130,134 @@ async def get_wallet_transactions(
 
 
 # ============================================================================
-# BANK ACCOUNT (required before withdrawing)
+# PAYOUT ACCOUNT (M-Pesa number, required before withdrawing)
 # ============================================================================
 
-@router.post("/bank-account")
-async def add_bank_account(
-    bank_data: BankAccountAdd,
+@router.post("/payout-account")
+async def add_payout_account(
+    payout_data: PayoutAccountAdd,
     current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
 
-    # Resolve account name with Paystack (confirms account number is real & matches bank)
-    try:
-        resolved = await paystack.resolve_account(bank_data.account_number, bank_data.bank_code)
-    except httpx.HTTPStatusError:
-        raise HTTPException(status_code=400, detail="Could not verify bank account details")
-
-    account_name = resolved["data"]["account_name"]
+    account_name = f"{current_user['first_name']} {current_user['last_name']}"
 
     try:
-        recipient = await paystack.create_transfer_recipient(
+        recipient = await paystack.create_mpesa_recipient(
             name=account_name,
-            account_number=bank_data.account_number,
-            bank_code=bank_data.bank_code,
+            phone_number=payout_data.phone_number,
         )
-    except httpx.HTTPStatusError:
-        raise HTTPException(status_code=400, detail="Could not register bank account for payouts")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Paystack recipient creation failed: {e.response.text}")
+        raise HTTPException(status_code=400, detail="Could not register this M-Pesa number for payouts")
 
     await db.users.update_one(
         {"_id": current_user["_id"]},
         {"$set": {
-            "bank_account": {
+            "payout_account": {
+                "method": "mpesa",
                 "account_name": account_name,
-                "account_number": bank_data.account_number,
-                "bank_code": bank_data.bank_code,
+                "phone_number": payout_data.phone_number,
+                "currency": settings.CURRENCY,
             },
             "paystack_recipient_code": recipient["data"]["recipient_code"],
         }}
     )
 
-    return {"message": "Bank account added successfully", "account_name": account_name}
+    return {
+        "message": "M-Pesa payout number saved",
+        "account_name": account_name,
+        "phone_number": _mask_phone(payout_data.phone_number),
+    }
 
 
 # ============================================================================
-# WITHDRAW (fund transfer out of the platform wallet to user's bank)
+# WITHDRAW (fund transfer out of the platform wallet to the user's M-Pesa)
 # ============================================================================
 
 @router.post("/wallet/withdraw")
 @limiter.limit("5/minute")
 async def withdraw_funds(
-    request: Request,   # <-- this was missing
+    request: Request,
     withdraw_data: WithdrawRequest,
     current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
 
-    if withdraw_data.amount > current_user.get("wallet_balance", 0.0):
+    # Only recipients created through the M-Pesa flow are usable. Anything saved
+    # by the old bank-account flow has no payout_account and must be re-added.
+    recipient_code = current_user.get("paystack_recipient_code")
+    if not current_user.get("payout_account") or not recipient_code:
+        raise HTTPException(status_code=400, detail="Please add your M-Pesa number before withdrawing")
+
+    amount = withdraw_data.amount
+    if amount > current_user.get("wallet_balance", 0.0):
         raise HTTPException(status_code=400, detail="Insufficient wallet balance")
 
-    recipient_code = current_user.get("paystack_recipient_code")
-    if not recipient_code:
-        raise HTTPException(status_code=400, detail="Please add a bank account before withdrawing")
-
-    # Deduct first to prevent double-withdraw race conditions, refund on failure
+    # Deduct first (atomically) to prevent double-withdraw race conditions
     result = await db.users.update_one(
-        {"_id": current_user["_id"], "wallet_balance": {"$gte": withdraw_data.amount}},
-        {"$inc": {"wallet_balance": -withdraw_data.amount}}
+        {"_id": current_user["_id"], "wallet_balance": {"$gte": amount}},
+        {"$inc": {"wallet_balance": -amount}}
     )
     if result.modified_count == 0:
         raise HTTPException(status_code=400, detail="Insufficient wallet balance")
 
-    try:
-        transfer = await paystack.initiate_transfer(
-            amount_kobo=int(withdraw_data.amount * 100),
-            recipient_code=recipient_code,
-            reason="Wallet withdrawal",
-        )
-    except httpx.HTTPStatusError as e:
-        # Refund on failure
-        await db.users.update_one(
-            {"_id": current_user["_id"]},
-            {"$inc": {"wallet_balance": withdraw_data.amount}}
-        )
-        logger.error(f"Paystack transfer failed: {e.response.text}")
-        raise HTTPException(status_code=502, detail="Withdrawal failed, funds have been refunded to your wallet")
+    # Our own reference travels to Paystack and comes back in the transfer.*
+    # webhooks, which is how the final outcome finds this ledger entry.
+    # Paystack requires lowercase letters, digits, "_" or "-", 16-50 characters.
+    reference = f"wd_{uuid.uuid4().hex}"
 
+    # Record the withdrawal as pending BEFORE calling Paystack, so a webhook
+    # that arrives immediately can always find it.
     await db.wallet_transactions.insert_one({
         "user_id": current_user["_id"],
         "transaction_type": "withdrawal",
-        "amount": -withdraw_data.amount,
-        "description": "Wallet withdrawal to bank account",
-        "paystack_transfer_code": transfer["data"]["transfer_code"],
+        "amount": -amount,
+        "status": "pending",
+        "paystack_reference": reference,
+        "description": "Withdrawal to M-Pesa",
         "created_at": datetime.now(timezone.utc),
     })
 
+    try:
+        transfer = await paystack.initiate_transfer(
+            amount_kobo=int(round(amount * 100)),
+            recipient_code=recipient_code,
+            reason="Wallet withdrawal",
+            reference=reference,
+        )
+    except httpx.HTTPStatusError as e:
+        # Paystack rejected the request: nothing was sent, so give the money back.
+        logger.error(f"Paystack transfer rejected: {e.response.text}")
+        await refund_withdrawal(db, reference, "failed", ["pending"])
+        raise HTTPException(status_code=502, detail="Withdrawal failed, funds have been returned to your wallet")
+    except httpx.RequestError as e:
+        # Timeout or network error: we cannot know whether Paystack sent the money.
+        # Leave the withdrawal pending; the transfer webhook will settle it.
+        logger.error(f"Paystack transfer outcome unknown for {reference}: {e}")
+        return {
+            "message": "Your withdrawal is being processed. Check your transaction history for the result.",
+            "status": "pending",
+            "amount": amount,
+        }
+
+    transfer_data = transfer.get("data", {})
+
+    if transfer_data.get("status") == "otp":
+        # Paystack is waiting for an OTP that no one can enter, so it will never complete.
+        logger.error(f"Transfer {reference} needs OTP confirmation; disable it in the Paystack dashboard")
+        await refund_withdrawal(db, reference, "failed", ["pending"])
+        raise HTTPException(status_code=503, detail="Withdrawals are temporarily unavailable. Your funds are safe in your wallet.")
+
+    await db.wallet_transactions.update_one(
+        {"paystack_reference": reference, "transaction_type": "withdrawal"},
+        {"$set": {"paystack_transfer_code": transfer_data.get("transfer_code")}}
+    )
+
+    # Stays "pending" until the transfer.success / transfer.failed webhook arrives.
     return {
-        "message": "Withdrawal initiated successfully",
-        "amount": withdraw_data.amount,
-        "transfer_code": transfer["data"]["transfer_code"],
+        "message": "Withdrawal submitted. It will show as complete once M-Pesa confirms it.",
+        "status": "pending",
+        "amount": amount,
+        "reference": reference,
     }

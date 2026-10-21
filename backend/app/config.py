@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_BASE_URL: str = "https://api.paystack.co"
 
+    # The single currency the platform trades in (Kenya).
+    CURRENCY: str = "KES"
+
     DEVELOPER_COMMISSION: float = 0.45
     SALESPERSON_COMMISSION: float = 0.35
     PLATFORM_COMMISSION: float = 0.20

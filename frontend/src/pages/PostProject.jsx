@@ -16,7 +16,7 @@ const initialForm = {
   description: "",
   category: "web_development",
   budget: "",
-  currency: "NGN",
+  currency: "KES",
   deadline: "",
   client_name: "",
   client_email: "",

@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr, Field
+import re
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, Literal
 from datetime import datetime
 from typing import List
@@ -40,7 +41,8 @@ class ProjectCreate(BaseModel):
     description: str = Field(min_length=30, max_length=3000)
     category: str
     budget: float = Field(gt=0)
-    currency: str = "NGN"
+    # Ignored by the server: every project is created in the platform currency.
+    currency: str = "KES"
     deadline: datetime
     client_name: str
     client_email: EmailStr
@@ -124,12 +126,23 @@ class UserProfileResponse(BaseModel):
 class WalletResponse(BaseModel):
     wallet_balance: float
     total_earned: float
-    currency: str = "NGN"
+    currency: str = "KES"
 
 
-class BankAccountAdd(BaseModel):
-    account_number: str = Field(min_length=10, max_length=10)
-    bank_code: str
+class PayoutAccountAdd(BaseModel):
+    """M-Pesa number that withdrawals are paid to."""
+    phone_number: str
+
+    @field_validator("phone_number")
+    @classmethod
+    def normalise_kenyan_number(cls, value: str) -> str:
+        # Accepts 0712345678, 712345678, 254712345678 and +254712345678
+        # (also 01xx numbers) and stores it as 0712345678.
+        digits = re.sub(r"[\s\-()]", "", value)
+        match = re.fullmatch(r"(?:\+?254|0)?([71]\d{8})", digits)
+        if not match:
+            raise ValueError("Enter a valid Kenyan mobile number, e.g. 0712345678")
+        return "0" + match.group(1)
 
 
 class WithdrawRequest(BaseModel):

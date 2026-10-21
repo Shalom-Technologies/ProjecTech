@@ -4,6 +4,7 @@ from typing import Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 
+from app.config import settings
 from app.database import get_database
 from app.dependencies import get_current_user, require_role
 from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate
@@ -34,7 +35,7 @@ async def create_project(
         "description": project_data.description,
         "category": project_data.category,
         "budget": project_data.budget,
-        "currency": project_data.currency,
+        "currency": settings.CURRENCY,
         "deadline": project_data.deadline,
         "client_name": project_data.client_name,
         "client_email": project_data.client_email,
@@ -110,7 +111,7 @@ async def list_projects(
             "description": project["description"],
             "category": project["category"],
             "budget": project["budget"],
-            "currency": project.get("currency", "NGN"),
+            "currency": project.get("currency", settings.CURRENCY),
             "status": project["status"],
             "deadline": project.get("deadline"),
             "applications_count": len(project.get("applications", [])),
@@ -154,7 +155,7 @@ async def get_my_assigned_projects(
             "description": p["description"],
             "category": p["category"],
             "budget": p["budget"],
-            "currency": p.get("currency", "NGN"),
+            "currency": p.get("currency", settings.CURRENCY),
             "status": p["status"],
             "deadline": p.get("deadline"),
             "assignment_date": p.get("assignment_date"),
@@ -186,7 +187,7 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
         "description": project["description"],
         "category": project["category"],
         "budget": project["budget"],
-        "currency": project["currency"],
+        "currency": project.get("currency", settings.CURRENCY),
         "status": project["status"],
         "deadline": project["deadline"],
         "client_name": project["client_name"],

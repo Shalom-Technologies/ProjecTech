@@ -31,6 +31,7 @@ async def connect_to_mongo():
     await db.transactions.create_index("project_id")
     await db.transactions.create_index("status")
     await db.wallet_transactions.create_index("user_id")
+    await db.wallet_transactions.create_index("paystack_reference")
     await db.wallet_transactions.create_index([("created_at", -1)])
     await db.password_resets.create_index("token", unique=True)
     await db.password_resets.create_index("user_id")
