@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from bson import ObjectId
@@ -8,6 +9,7 @@ from app.config import settings
 from app.database import get_database
 from app.dependencies import get_current_user, require_role
 from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate, PriceProposalCreate, PriceProposalDecision, ProblemReport
+from app.lookups import users_by_id
 from app.delivery import deliver_project, open_dispute, serialize_delivery, serialize_dispute
 from app.pricing import get_agreed_amount, check_amount_limits, round_money, serialize_proposal
 
@@ -88,9 +90,12 @@ async def list_projects(
             budget_q["$lte"] = max_budget
         query["budget"] = budget_q
     if search:
+        # Escaped so what people type is searched literally. Unescaped, "(" or "*" would
+        # break the query, and a crafted pattern could make the database spin.
+        pattern = re.escape(search.strip()[:100])
         query["$or"] = [
-            {"title": {"$regex": search, "$options": "i"}},
-            {"description": {"$regex": search, "$options": "i"}},
+            {"title": {"$regex": pattern, "$options": "i"}},
+            {"description": {"$regex": pattern, "$options": "i"}},
         ]
 
     total = await db.projects.count_documents(query)
@@ -99,11 +104,13 @@ async def list_projects(
     cursor = db.projects.find(query).sort("created_at", -1).skip(skip).limit(per_page)
     projects = await cursor.to_list(length=per_page)
 
+    devs = await users_by_id(db, [p.get("assigned_to") for p in projects])
+
     formatted_projects = []
     for project in projects:
         assigned_name = None
         if project.get("assigned_to"):
-            dev = await db.users.find_one({"_id": project["assigned_to"]})
+            dev = devs.get(project["assigned_to"])
             if dev:
                 assigned_name = f"{dev['first_name']} {dev['last_name']}"
 
@@ -155,9 +162,11 @@ async def get_my_assigned_projects(
         )
         funded_ids = {t["project_id"] for t in await paid.to_list(length=None)}
 
+    salespeople = await users_by_id(db, [p["salesperson_id"] for p in projects])
+
     data = []
     for p in projects:
-        salesperson = await db.users.find_one({"_id": p["salesperson_id"]})
+        salesperson = salespeople.get(p["salesperson_id"])
         data.append({
             "id": str(p["_id"]),
             "title": p["title"],
@@ -356,10 +365,11 @@ async def get_applications(
         raise HTTPException(status_code=403, detail="You can only view applications for your own projects")
 
     applications = project.get("applications", [])
+    developers = await users_by_id(db, [a["developer_id"] for a in applications])
     result = []
 
     for app in applications:
-        developer = await db.users.find_one({"_id": app["developer_id"]})
+        developer = developers.get(app["developer_id"])
         result.append({
             "application_id": str(app["application_id"]),
             "developer_id": str(app["developer_id"]),

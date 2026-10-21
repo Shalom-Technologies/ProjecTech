@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
+from pymongo.errors import DuplicateKeyError
 
 from app.database import get_database
 from app.dependencies import get_current_user
 from app.schemas import ReviewCreate
+from app.lookups import users_by_id, projects_by_id
 
 router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
 
@@ -55,18 +57,24 @@ async def create_review(
         "comment": review_data.comment,
         "created_at": datetime.now(timezone.utc),
     }
-    await db.reviews.insert_one(review_doc)
+    try:
+        await db.reviews.insert_one(review_doc)
+    except DuplicateKeyError:
+        # The unique index on (project, reviewer) caught a double submit.
+        raise HTTPException(status_code=400, detail="You have already reviewed this project")
 
-    # Recalculate the reviewed user's average rating
-    cursor = db.reviews.find({"reviewed_user_id": reviewed_oid})
-    all_reviews = await cursor.to_list(length=1000)
-    avg_rating = sum(r["rating"] for r in all_reviews) / len(all_reviews)
+    # Recalculate the reviewed user's average in the database, over ALL their reviews
+    # (the old version read at most 1000 into memory and got the average wrong beyond that).
+    summary = await db.reviews.aggregate([
+        {"$match": {"reviewed_user_id": reviewed_oid}},
+        {"$group": {"_id": None, "average": {"$avg": "$rating"}, "total": {"$sum": 1}}},
+    ]).to_list(length=1)
 
-    await db.users.update_one(
-        {"_id": reviewed_oid},
-        {"$set": {"average_rating": round(avg_rating, 2), "total_reviews": len(all_reviews)}}
-    )
-    print(f"DEBUG: updated user {reviewed_oid} -> avg={round(avg_rating,2)}, total={len(all_reviews)}")
+    if summary:
+        await db.users.update_one(
+            {"_id": reviewed_oid},
+            {"$set": {"average_rating": round(summary[0]["average"], 2), "total_reviews": summary[0]["total"]}}
+        )
 
     return {"message": "Review submitted successfully"}
 
@@ -87,10 +95,13 @@ async def get_user_reviews(
     cursor = db.reviews.find(query).sort("created_at", -1).skip(skip).limit(per_page)
     reviews = await cursor.to_list(length=per_page)
 
+    reviewers = await users_by_id(db, [r["reviewer_id"] for r in reviews])
+    projects = await projects_by_id(db, [r["project_id"] for r in reviews])
+
     data = []
     for r in reviews:
-        reviewer = await db.users.find_one({"_id": r["reviewer_id"]})
-        project = await db.projects.find_one({"_id": r["project_id"]})
+        reviewer = reviewers.get(r["reviewer_id"])
+        project = projects.get(r["project_id"])
         data.append({
             "id": str(r["_id"]),
             "reviewer_name": f"{reviewer['first_name']} {reviewer['last_name']}" if reviewer else "Unknown",
