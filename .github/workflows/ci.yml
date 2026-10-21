@@ -20,7 +20,16 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
       - run: python -m compileall -q app scripts
-      - run: pytest -q
+      - name: Run tests
+        run: pytest -q --tb=short -rf 2>&1 | tee pytest.log; exit ${PIPESTATUS[0]}
+      - name: Show test failures in the run summary
+        if: failure()
+        run: |
+          python - <<'PY'
+          import urllib.parse
+          log = open("pytest.log").read()[-3500:]
+          print("::error title=pytest failed::" + log.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
+          PY
 
   frontend:
     runs-on: ubuntu-latest
