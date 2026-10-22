@@ -18,6 +18,10 @@ from app.security import verify_password
 
 from app.dependencies import get_current_user
 
+# The date of the Terms of Service and Privacy Policy a new account agreed to. Change it when
+# those pages change in a way that needs fresh agreement.
+TERMS_VERSION = "2026-10-22"
+
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
@@ -39,6 +43,8 @@ async def register(request: Request, user_data: UserRegister):
         "created_at": datetime.now(timezone.utc),
         "wallet_balance": 0.0,
         "email_verified": False,
+        "terms_accepted_at": datetime.now(timezone.utc),
+        "terms_version": TERMS_VERSION,
     }
 
     # Role-specific fields

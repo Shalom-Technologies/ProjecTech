@@ -9,6 +9,7 @@ export default function Register() {
     first_name: "",
     last_name: "",
     role: "developer",
+    accepted_terms: false,
   });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -16,7 +17,8 @@ export default function Register() {
   const navigate = useNavigate();
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, type, value, checked } = e.target;
+    setFormData({ ...formData, [name]: type === "checkbox" ? checked : value });
   };
 
   const handleSubmit = async (e) => {
@@ -109,6 +111,22 @@ export default function Register() {
         <p className="field-hint">
           At least 8 characters, with uppercase, lowercase, and a number.
         </p>
+
+        <label className="terms-check" htmlFor="accepted_terms">
+          <input
+            id="accepted_terms"
+            name="accepted_terms"
+            type="checkbox"
+            checked={formData.accepted_terms}
+            onChange={handleChange}
+            required
+          />
+          <span>
+            I am 18 or older and I agree to the{" "}
+            <Link to="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</Link> and the{" "}
+            <Link to="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</Link>.
+          </span>
+        </label>
 
         <button type="submit" disabled={submitting}>
           {submitting ? "Creating account..." : "Sign up"}

@@ -316,5 +316,17 @@ async def main():
     settings.ADMIN_EMAIL = "admin@x.com"
     check("sent once an address is set", await delivery.send_admin_digest(db) == 1)
 
+    # ---- the client's contact details are not shown to other users ----
+    sales, dev, proj, tx = await make_held("Privacy")
+    stranger = {"_id": ObjectId(), "role": "developer"}
+    pid = str(proj["_id"])
+    raw(proj["_id"]).update(description="d", category="web", deadline=None, created_at=datetime.now(timezone.utc))
+    view = await projects.get_project(pid, current_user=sales)
+    check("the salesperson sees the client's name and email", view["client_name"] == "Client" and view["client_email"] == "c@x.com")
+    view = await projects.get_project(pid, current_user=dev)
+    check("the assigned developer sees the name only", view["client_name"] == "Client" and view["client_email"] is None)
+    view = await projects.get_project(pid, current_user=stranger)
+    check("another developer sees neither", view["client_name"] is None and view["client_email"] is None)
+
     print(f"\n{sum(results)}/{len(results)} passed"); sys.exit(0 if all(results) else 1)
 asyncio.run(main())
