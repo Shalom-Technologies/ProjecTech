@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.escrow import settle_escrow, release_matured_holds
+from app.mailer import send_or_record
 from app.pricing import round_money
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ def serialize_delivery(project: dict):
         "review_deadline": delivery.get("review_deadline"),
         "accepted_at": delivery.get("accepted_at"),
         "accepted_by": delivery.get("accepted_by"),  # client | auto
+        "client_email_sent": delivery.get("client_email_sent"),  # False = the review email failed
     }
 
 
@@ -104,6 +106,44 @@ def serialize_dispute(project: dict):
 # ---------------------------------------------------------------------------
 # developer marks the work delivered
 # ---------------------------------------------------------------------------
+
+async def send_review_email(db, project: dict, deadline) -> bool:
+    from app.email_client import send_review_started_email
+    token = await ensure_invoice_token(db, project)
+    return await send_or_record(
+        db, "review_started",
+        send_review_started_email(
+            to_email=project["client_email"],
+            project_title=project["title"],
+            invoice_url=invoice_url(token),
+            review_deadline=deadline,
+        ),
+        to_email=project["client_email"], user_id=project["salesperson_id"], project_id=project["_id"],
+    )
+
+
+async def resend_review_email(db, project: dict) -> dict:
+    delivery = project.get("delivery") or {}
+    if delivery.get("status") != "delivered" or project["status"] != "in_progress":
+        raise HTTPException(status_code=400, detail="There is no delivery waiting for the client's review.")
+
+    last = delivery.get("client_email_last_attempt")
+    if last:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        wait = 60 - (_now() - last).total_seconds()
+        if wait > 0:
+            raise HTTPException(status_code=429, detail=f"Please wait {int(wait) + 1} seconds before sending it again.")
+
+    deadline = delivery["review_deadline"]
+    sent = await send_review_email(db, project, deadline)
+    await db.projects.update_one(
+        {"_id": project["_id"]},
+        {"$set": {"delivery.client_email_sent": sent, "delivery.client_email_last_attempt": _now()}},
+    )
+    token = await ensure_invoice_token(db, project)
+    return {"sent": sent, "invoice_url": invoice_url(token)}
+
 
 async def deliver_project(db, project: dict) -> dict:
     if project["status"] != "in_progress":
@@ -145,19 +185,12 @@ async def deliver_project(db, project: dict) -> dict:
         project["_id"],
     )
 
-    # Tell the client too, on the same link they paid through. Best effort: the invoice
-    # page shows the review state whether or not this email arrives.
-    try:
-        from app.email_client import send_review_started_email
-        token = await ensure_invoice_token(db, project)
-        await send_review_started_email(
-            to_email=project["client_email"],
-            project_title=project["title"],
-            invoice_url=invoice_url(token),
-            review_deadline=deadline,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Could not email the client about delivery of {project['_id']}: {e}")
+    # Tell the client too, on the same link they paid through. If the email cannot be sent,
+    # that is recorded on the project so the salesperson sees a warning and can resend it or
+    # copy the link; the invoice page shows the review state either way.
+    sent = await send_review_email(db, project, deadline)
+    result_note = {"delivery.client_email_sent": sent, "delivery.client_email_last_attempt": _now()}
+    await db.projects.update_one({"_id": project["_id"]}, {"$set": result_note})
 
     return {"review_deadline": deadline}
 

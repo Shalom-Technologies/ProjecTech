@@ -36,6 +36,31 @@ async def get_current_user(
     return user
 
 
+async def require_verified_user(current_user: dict = Depends(get_current_user)):
+    """Any signed-in user, who must also have confirmed their email address."""
+    if not current_user.get("email_verified"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please confirm your email address first. Check your inbox, or ask for a new email from your dashboard.",
+        )
+    return current_user
+
+
+def require_verified_role(*allowed_roles: str):
+    """Like require_role, and the person must also have confirmed their email address."""
+    base = require_role(*allowed_roles)
+
+    async def checker(current_user: dict = Depends(base)):
+        if not current_user.get("email_verified"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Please confirm your email address first. Check your inbox, or ask for a new email from your dashboard.",
+            )
+        return current_user
+
+    return checker
+
+
 def require_role(*allowed_roles: str):
     """
     Dependency factory for role-based access control.

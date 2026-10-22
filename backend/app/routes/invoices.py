@@ -4,7 +4,7 @@ from bson.errors import InvalidId
 
 from app.config import settings
 from app.database import get_database
-from app.dependencies import require_role
+from app.dependencies import require_verified_role
 from app.pricing import get_agreed_amount
 from app.schemas import ProblemReport
 from app.delivery import ensure_invoice_token, invoice_url, accept_delivery, open_dispute
@@ -59,7 +59,7 @@ async def _project_for_token(db, token: str) -> dict:
 @router.post("/for-project/{project_id}")
 async def get_invoice_link(
     project_id: str,
-    current_user: dict = Depends(require_role("salesperson"))
+    current_user: dict = Depends(require_verified_role("salesperson"))
 ):
     db = get_database()
     try:

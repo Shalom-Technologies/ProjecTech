@@ -3,4 +3,5 @@ Disallow: /dashboard
 Disallow: /payment
 Disallow: /pay/
 Disallow: /reset-password
+Disallow: /verify-email
 Sitemap: https://projectech.dev/sitemap.xml

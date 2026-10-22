@@ -130,9 +130,9 @@ mod("app.config", settings=types.SimpleNamespace(
     CURRENCY="KES", REVIEW_WINDOW_DAYS=7, PAYOUT_HOLD_DAYS=7, PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=30, MIN_PAYMENT_AMOUNT=100.0, MAX_PAYMENT_AMOUNT=5_000_000.0, FRONTEND_URL="http://x",
     PAYSTACK_SECRET_KEY="sk_test", DEVELOPER_COMMISSION=0.45, SALESPERSON_COMMISSION=0.35))
 mod("app.database", get_database=lambda: db)
-mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (lambda: None))
+mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (lambda: None), require_verified_role=lambda *r: (lambda: None), require_verified_user=lambda: None)
 mod("app.rate_limit", limiter=types.SimpleNamespace(limit=lambda s: (lambda f: f)))
-mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (lambda: None))
+mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (lambda: None), require_verified_role=lambda *r: (lambda: None), require_verified_user=lambda: None)
 sent = []
 async def send_password_reset_email(email, link, name): sent.append(link)
 mod("app.email_client", send_password_reset_email=send_password_reset_email, send_review_started_email=None)
@@ -153,7 +153,7 @@ def load(name, path):
 emails = []
 async def send_review_started_email(**kw): emails.append(kw)
 mod("app.email_client", send_review_started_email=send_review_started_email)
-load("app.lookups", "app/lookups.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py")
+load("app.lookups", "app/lookups.py"); load("app.mailer", "app/mailer.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py")
 load("app.escrow", "app/escrow.py"); delivery = load("app.delivery", "app/delivery.py")
 projects = load("app.routes.projects", "app/routes/projects.py")
 payments = load("app.routes.payments", "app/routes/payments.py")
@@ -197,7 +197,9 @@ S.hash_reset_token = lambda t: hashlib.sha256(t.encode()).hexdigest()
 S.ResetDummy = None
 sent = []
 async def _spre(email, link, name): sent.append(link)
-mod("app.email_client", send_password_reset_email=_spre)
+async def _sver(*a, **k): pass
+mod("app.email_client", send_password_reset_email=_spre, send_verification_email=_sver)
+load("app.verification", "app/verification.py")
 auth = load("app.routes.auth", "app/routes/auth.py")
 from app.schemas import ForgotPasswordRequest, ResetPasswordRequest
 

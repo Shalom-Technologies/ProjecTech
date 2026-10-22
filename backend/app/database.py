@@ -53,6 +53,10 @@ async def connect_to_mongo():
     await db.password_resets.create_index("token_hash", unique=True, sparse=True)
     await db.password_resets.create_index("user_id")
     await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
+    await db.email_verifications.create_index("token_hash", unique=True)
+    await db.email_verifications.create_index("user_id")
+    await db.email_verifications.create_index("expires_at", expireAfterSeconds=0)
+    await db.email_failures.create_index([("created_at", -1)])
     await db.reviews.create_index("reviewed_user_id")
     await db.reviews.create_index([("project_id", 1), ("reviewer_id", 1)], unique=True)
 

@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import VerifyEmailBanner from "./VerifyEmailBanner";
 
 const SALESPERSON_NAV = [
   { label: "Overview", path: "/dashboard/overview" },
@@ -56,7 +57,10 @@ export default function DashboardLayout({ children }) {
         </div>
       </aside>
 
-      <main className="shell-main">{children}</main>
+      <main className="shell-main">
+        <VerifyEmailBanner />
+        {children}
+      </main>
     </div>
   );
 }

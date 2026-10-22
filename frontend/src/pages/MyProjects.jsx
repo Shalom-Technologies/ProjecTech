@@ -26,6 +26,8 @@ export default function MyProjects() {
   const [paymentMap, setPaymentMap] = useState({});
   const [reportingId, setReportingId] = useState(null);
   const [notice, setNotice] = useState("");
+  const [resendingId, setResendingId] = useState(null);
+  const [shareLink, setShareLink] = useState({});
   const navigate = useNavigate();
 
   const loadProjects = useCallback(async () => {
@@ -84,6 +86,27 @@ export default function MyProjects() {
     setReportingId(null);
     setNotice("Your report was received. The payment will not be released until it has been reviewed.");
     await loadProjects();
+  };
+
+  const handleResendEmail = async (project) => {
+    setResendingId(project.id);
+    setError("");
+    setNotice("");
+    try {
+      const res = await projectsApi.resendReviewEmail(project.id);
+      setShareLink((prev) => ({ ...prev, [project.id]: res.data.invoice_url }));
+      if (res.data.sent) setNotice(`We sent the review email to ${project.client_email || "the client"} again.`);
+      else setError("The email still couldn't be sent. Copy the link below and send it to your client yourself.");
+      await loadProjects();
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+          err.response?.data?.detail ||
+          "Could not resend the email."
+      );
+    } finally {
+      setResendingId(null);
+    }
   };
 
   // What the money is doing, in words, for a paid project.
@@ -189,6 +212,29 @@ export default function MyProjects() {
                 </button>
               </div>
             </div>
+
+            {paymentMap[project.id]?.delivery?.status === "delivered" &&
+              paymentMap[project.id]?.delivery?.client_email_sent === false && (
+                <div className="modal-note">
+                  <p>
+                    <strong>The client may not have received the review email.</strong> Until they
+                    open the link, the review period still runs and the payment is released on{" "}
+                    {new Date(paymentMap[project.id].delivery.review_deadline).toLocaleDateString()}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleResendEmail(project)}
+                    disabled={resendingId === project.id}
+                  >
+                    {resendingId === project.id ? "Sending..." : "Send the email again"}
+                  </button>
+                  {shareLink[project.id] && (
+                    <div className="link-display">
+                      <input readOnly value={shareLink[project.id]} onFocus={(e) => e.target.select()} />
+                    </div>
+                  )}
+                </div>
+              )}
 
             {paymentMap[project.id]?.dispute?.status === "open" && (
               <div className="modal-note">

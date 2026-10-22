@@ -7,10 +7,10 @@ from bson.errors import InvalidId
 
 from app.config import settings
 from app.database import get_database
-from app.dependencies import get_current_user, require_role
+from app.dependencies import get_current_user, require_role, require_verified_role
 from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate, PriceProposalCreate, PriceProposalDecision, ProblemReport
 from app.lookups import users_by_id
-from app.delivery import deliver_project, open_dispute, serialize_delivery, serialize_dispute
+from app.delivery import deliver_project, resend_review_email, open_dispute, serialize_delivery, serialize_dispute
 from app.pricing import get_agreed_amount, check_amount_limits, round_money, serialize_proposal
 
 router = APIRouter(prefix="/api/projects", tags=["Projects"])
@@ -30,7 +30,7 @@ def to_object_id(id_str: str) -> ObjectId:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_project(
     project_data: ProjectCreate,
-    current_user: dict = Depends(require_role("salesperson"))
+    current_user: dict = Depends(require_verified_role("salesperson"))
 ):
     db = get_database()
 
@@ -311,7 +311,7 @@ async def delete_project(
 async def apply_for_project(
     project_id: str,
     application: ApplicationCreate,
-    current_user: dict = Depends(require_role("developer"))
+    current_user: dict = Depends(require_verified_role("developer"))
 ):
     db = get_database()
     project = await db.projects.find_one({"_id": to_object_id(project_id)})
@@ -742,3 +742,21 @@ async def report_problem(
 
     await open_dispute(db, project, role, report.reason)
     return {"message": "Your report was received. The payment will not be released until it has been reviewed."}
+
+
+
+@router.post("/{project_id}/resend-review-email")
+async def resend_review_email_route(
+    project_id: str,
+    current_user: dict = Depends(require_role("salesperson"))
+):
+    """Sends the client their review email again, and returns the link to share by hand."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project["salesperson_id"] != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the project owner can do this")
+
+    return await resend_review_email(db, project)

@@ -126,7 +126,7 @@ mod("app.config", settings=types.SimpleNamespace(
     CURRENCY="KES", REVIEW_WINDOW_DAYS=7, PAYOUT_HOLD_DAYS=7, MIN_PAYMENT_AMOUNT=100.0, MAX_PAYMENT_AMOUNT=5_000_000.0, FRONTEND_URL="http://x",
     PAYSTACK_SECRET_KEY="sk_test", DEVELOPER_COMMISSION=0.45, SALESPERSON_COMMISSION=0.35))
 mod("app.database", get_database=lambda: db)
-mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (lambda: None))
+mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (lambda: None), require_verified_role=lambda *r: (lambda: None), require_verified_user=lambda: None)
 mod("app.rate_limit", limiter=types.SimpleNamespace(limit=lambda s: (lambda f: f)))
 paystack_calls = []
 class FakePaystack:
@@ -143,7 +143,7 @@ def load(name, path):
     m = importlib.util.module_from_spec(spec); sys.modules[name] = m; spec.loader.exec_module(m); return m
 async def send_review_started_email(**kw): pass
 mod("app.email_client", send_review_started_email=send_review_started_email)
-load("app.lookups", "app/lookups.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py"); load("app.escrow", "app/escrow.py"); load("app.delivery", "app/delivery.py")
+load("app.lookups", "app/lookups.py"); load("app.mailer", "app/mailer.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py"); load("app.escrow", "app/escrow.py"); load("app.delivery", "app/delivery.py")
 projects = load("app.routes.projects", "app/routes/projects.py")
 payments = load("app.routes.payments", "app/routes/payments.py")
 invoices = load("app.routes.invoices", "app/routes/invoices.py")

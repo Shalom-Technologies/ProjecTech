@@ -6,7 +6,7 @@ import uuid
 
 from app.config import settings
 from app.database import get_database
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_verified_user
 from app.schemas import UserProfileUpdate, PayoutAccountAdd, WithdrawRequest
 from app.paystack_client import paystack
 from app.rate_limit import limiter
@@ -36,6 +36,7 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         "first_name": current_user["first_name"],
         "last_name": current_user["last_name"],
         "role": current_user["role"],
+        "email_verified": bool(current_user.get("email_verified")),
         "phone": current_user.get("phone"),
         "bio": current_user.get("bio"),
         "location": current_user.get("location"),
@@ -147,7 +148,7 @@ async def get_wallet_transactions(
 @router.post("/payout-account")
 async def add_payout_account(
     payout_data: PayoutAccountAdd,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_verified_user)
 ):
     db = get_database()
 
@@ -191,7 +192,7 @@ async def add_payout_account(
 async def withdraw_funds(
     request: Request,
     withdraw_data: WithdrawRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_verified_user)
 ):
     db = get_database()
 

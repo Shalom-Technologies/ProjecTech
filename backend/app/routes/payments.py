@@ -10,7 +10,7 @@ import uuid
 import logging
 
 from app.database import get_database
-from app.dependencies import get_current_user, require_role
+from app.dependencies import get_current_user, require_role, require_verified_role
 from app.schemas import PaymentInitialize, PaymentVerify
 from app.paystack_client import paystack
 from app.config import settings
@@ -41,7 +41,7 @@ def to_object_id(id_str: str) -> ObjectId:
 async def initialize_payment(
     request: Request,
     payment_data: PaymentInitialize,
-    current_user: dict = Depends(require_role("salesperson"))
+    current_user: dict = Depends(require_verified_role("salesperson"))
 ):
 
     db = get_database()

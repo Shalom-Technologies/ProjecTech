@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
     last_name: str
     role: str
     created_at: datetime
+    email_verified: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -177,6 +178,10 @@ class ReviewCreate(BaseModel):
     reviewed_user_id: str
     rating: float = Field(ge=1, le=5)
     comment: str = Field(min_length=10, max_length=1000)
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
 
 
 class ChangePasswordRequest(BaseModel):
