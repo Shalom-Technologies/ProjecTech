@@ -26,7 +26,7 @@ export default function LegalPage({ title, updated, children }) {
         <div className="blog-post-meta">Last updated {updated}</div>
         <div className="blog-post-body">{children}</div>
         <p className="legal-switch">
-          <Link to="/terms">Terms of Service</Link> · <Link to="/privacy">Privacy Policy</Link>
+          <Link to="/terms">Terms of Service</Link> · <Link to="/privacy">Privacy Policy</Link> · <Link to="/support">Support</Link>
         </p>
       </article>
     </div>

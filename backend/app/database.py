@@ -57,6 +57,7 @@ async def connect_to_mongo():
     await db.email_verifications.create_index("user_id")
     await db.email_verifications.create_index("expires_at", expireAfterSeconds=0)
     await db.email_failures.create_index([("created_at", -1)])
+    await db.support_requests.create_index([("created_at", -1)])
     await db.reviews.create_index("reviewed_user_id")
     await db.reviews.create_index([("project_id", 1), ("reviewer_id", 1)], unique=True)
 

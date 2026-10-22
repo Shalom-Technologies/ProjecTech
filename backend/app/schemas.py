@@ -174,6 +174,24 @@ class PayoutAccountAdd(BaseModel):
 class WithdrawRequest(BaseModel):
     amount: float = Field(gt=0)
 
+SUPPORT_TOPICS = {
+    "payments": "Payments and refunds",
+    "account": "My account",
+    "project": "A project",
+    "report": "Report a user or a problem",
+    "other": "Something else",
+}
+
+
+class SupportRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    email: EmailStr
+    topic: Literal["payments", "account", "project", "report", "other"]
+    message: str = Field(min_length=10, max_length=3000)
+    # A hidden field real visitors never fill in. Bots usually do.
+    website: Optional[str] = Field(default=None, max_length=200)
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 

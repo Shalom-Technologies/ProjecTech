@@ -11,6 +11,7 @@ const SALESPERSON_NAV = [
   { label: "Transactions", path: "/dashboard/transactions" },
   { label: "Profile", path: "/dashboard/profile" },
   { label: "Settings", path: "/dashboard/settings" },
+  { label: "Support", path: "/support" },
 ];
 
 const DEVELOPER_NAV = [
@@ -21,6 +22,7 @@ const DEVELOPER_NAV = [
   { label: "Transactions", path: "/dashboard/transactions" },
   { label: "Profile", path: "/dashboard/profile" },
   { label: "Settings", path: "/dashboard/settings" },
+  { label: "Support", path: "/support" },
 ];
 
 export default function DashboardLayout({ children }) {
