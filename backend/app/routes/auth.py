@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from app.database import get_database
 from app.schemas import UserRegister, UserLogin, TokenResponse, UserResponse
-from app.security import hash_password, verify_password, create_access_token
+from app.security import hash_password, verify_password, token_for_user
 from app.rate_limit import limiter
 from datetime import timedelta
 from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest
@@ -50,7 +50,7 @@ async def register(request: Request, user_data: UserRegister):
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
 
-    token = create_access_token({"sub": user_id, "role": user_data.role})
+    token = token_for_user({**user_doc, "_id": result.inserted_id})
 
     # Welcome + confirmation link. If it fails the account still works, and the dashboard
     # offers "resend" (the failure is recorded in email_failures).
@@ -80,7 +80,7 @@ async def login(request: Request, credentials: UserLogin):
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    token = create_access_token({"sub": str(user["_id"]), "role": user["role"]})
+    token = token_for_user(user)
 
     return TokenResponse(
         access_token=token,
@@ -158,7 +158,11 @@ async def reset_password(request: Request, data: ResetPasswordRequest):
 
     await db.users.update_one(
         {"_id": reset_record["user_id"]},
-        {"$set": {"password_hash": hash_password(data.new_password), "updated_at": datetime.now(timezone.utc)}}
+        {
+            "$set": {"password_hash": hash_password(data.new_password), "updated_at": datetime.now(timezone.utc)},
+            # Raising the version signs out every device that still holds an old login token.
+            "$inc": {"password_version": 1},
+        }
     )
 
     return {"message": "Password reset successfully. You can now log in with your new password."}
@@ -176,9 +180,14 @@ async def change_password(
     db = get_database()
     await db.users.update_one(
         {"_id": current_user["_id"]},
-        {"$set": {"password_hash": hash_password(data.new_password), "updated_at": datetime.now(timezone.utc)}}
+        {
+            "$set": {"password_hash": hash_password(data.new_password), "updated_at": datetime.now(timezone.utc)},
+            "$inc": {"password_version": 1},
+        }
     )
-    return {"message": "Password changed successfully"}
+    # Every other device is signed out; this one gets a fresh token so the person stays logged in.
+    fresh = await db.users.find_one({"_id": current_user["_id"]})
+    return {"message": "Password changed successfully", "access_token": token_for_user(fresh)}
 
 
 @router.post("/verify-email")

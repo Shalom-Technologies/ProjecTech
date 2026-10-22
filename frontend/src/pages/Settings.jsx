@@ -66,10 +66,12 @@ export default function Settings() {
 
     setSavingPassword(true);
     try {
-      await authApi.changePassword({
+      const res = await authApi.changePassword({
         current_password: passwordForm.current_password,
         new_password: passwordForm.new_password,
       });
+      // Other devices are signed out by a password change; keep this one signed in.
+      if (res.data?.access_token) localStorage.setItem("access_token", res.data.access_token);
       setPasswordSuccess("Password changed successfully.");
       setPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
     } catch (err) {
