@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import PublicNav from "../components/PublicNav";
+import { openCookieSettings } from "../consent";
 
 const STEPS = [
   {
@@ -101,6 +102,9 @@ export default function Home() {
           <Link to="/blog">Blog</Link>
           <Link to="/terms">Terms</Link>
           <Link to="/privacy">Privacy</Link>
+          <button type="button" className="link-button" onClick={openCookieSettings}>
+            Cookie settings
+          </button>
           <Link to="/login">Log in</Link>
           <Link to="/register">Sign up</Link>
         </nav>
