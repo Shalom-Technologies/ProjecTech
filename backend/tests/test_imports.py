@@ -16,6 +16,7 @@ def test_app_imports_and_registers_routes():
         "/api/payments/verify",
         "/api/payments/webhook",
         "/api/invoices/{token}",
+        "/api/support",
         "/api/projects/{project_id}/deliver",
     ):
         assert expected in paths, f"{expected} is not registered"

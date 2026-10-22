@@ -13,12 +13,14 @@ BUTTON_STYLE = (
 )
 
 
-async def _send(to_email: str, subject: str, html_content: str, kind: str):
+async def _send(to_email: str, subject: str, html_content: str, kind: str, reply_to: str | None = None):
     """Sends one HTML email. Raises if the provider rejects it, so callers can react."""
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
     message["From"] = settings.EMAIL_FROM
     message["To"] = to_email
+    if reply_to:
+        message["Reply-To"] = reply_to
     message.attach(MIMEText(html_content, "html"))
 
     try:
@@ -102,3 +104,23 @@ async def send_admin_alert_email(to_email: str, subject: str, lines: list[str]):
         </div>
     """
     await _send(to_email, subject, html, "Admin alert")
+
+
+async def send_support_email(to_email: str, reply_to: str, name: str, topic: str, message: str, details: list[str]):
+    """A support request, sent to the admin. Replying to it goes straight to the person who wrote."""
+    # A header must be one line, so nothing a visitor typed can add headers of its own.
+    clean = lambda text: " ".join(text.split())
+    body = escape(message).replace("\n", "<br>")
+    meta = "".join(f"<li>{escape(line)}</li>" for line in details)
+    html = f"""
+        <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
+            <h2>{escape(clean(topic))}</h2>
+            <p>From {escape(clean(name))} ({escape(clean(reply_to))}). Reply to this email to answer them.</p>
+            <div style="border-left: 3px solid #ccc; padding-left: 12px; margin: 16px 0;">{body}</div>
+            <ul style="color: #666; font-size: 13px;">{meta}</ul>
+        </div>
+    """
+    await _send(
+        to_email, f"[ProjecTech support] {clean(topic)}: {clean(name)}"[:200], html, "Support request",
+        reply_to=clean(reply_to),
+    )

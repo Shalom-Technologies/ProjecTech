@@ -5,7 +5,7 @@ Once per background cycle, anything new that needs attention is gathered into ON
   - problem reports waiting for a decision
   - payments that must be refunded (paid on an outdated link, or on a cancelled project)
   - refunds Paystack says failed
-  - emails the platform could not send
+  - emails the platform could not send, and support messages that could not be emailed
 Each item is marked as alerted, so it is mentioned once. A failed refund is mentioned again
 if it fails again. If ADMIN_EMAIL is not set, nothing is sent and the items stay in the database.
 
@@ -32,6 +32,7 @@ def _sources():
         ("transactions", "", {"refund_status": "failed"}, _describe_refund_failed),
         ("transactions", "", {"needs_refund": True, "refund_status": {"$ne": "processed"}}, _describe_refund_due),
         ("email_failures", "", {}, _describe_email_failure),
+        ("support_requests", "", {"email_sent": False}, _describe_support_unsent),
     ]
 
 
@@ -48,6 +49,11 @@ def _describe_refund_due(d):
 def _describe_refund_failed(d):
     return (f"Paystack says a refund FAILED: {settings.CURRENCY} {d.get('total_amount', 0):,.2f}, "
             f"Paystack reference {d.get('paystack_reference')}. The client has not been paid back.")
+
+
+def _describe_support_unsent(d):
+    return (f"Support message from {d.get('name')} <{d.get('email')}> could not be emailed to you "
+            f"(topic {d.get('topic')}): {d.get('message', '')[:200]}")
 
 
 def _describe_email_failure(d):

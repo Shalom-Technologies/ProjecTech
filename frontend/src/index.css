@@ -247,8 +247,34 @@ button:disabled {
   font-weight: 600;
 }
 
-.auth-form input {
+.auth-form input,
+.auth-form select,
+.auth-form textarea {
   width: 100%;
+}
+
+.auth-form select,
+.auth-form textarea {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--rule-input);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.auth-form textarea {
+  resize: vertical;
+}
+
+/* Hidden from people, still visible to bots that fill in every field. */
+.hp-field {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
 }
 
 .auth-form button[type="submit"] {

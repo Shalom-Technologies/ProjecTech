@@ -100,6 +100,7 @@ export default function Home() {
         <span>© {new Date().getFullYear()} ProjecTech</span>
         <nav>
           <Link to="/blog">Blog</Link>
+          <Link to="/support">Support</Link>
           <Link to="/terms">Terms</Link>
           <Link to="/privacy">Privacy</Link>
           <button type="button" className="link-button" onClick={openCookieSettings}>
