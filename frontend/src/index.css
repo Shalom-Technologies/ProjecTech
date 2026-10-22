@@ -165,15 +165,21 @@ button:disabled {
   border-color: #3a3a35;
 }
 
-.btn-secondary {
+/* The three button looks share one size, so any two side by side line up:
+   .btn-primary (filled), .btn-secondary (outlined), .btn-danger (outlined red). */
+.btn-secondary,
+.btn-danger {
+  display: inline-block;
   background: transparent;
   border: 1px solid var(--ink);
   color: var(--ink);
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 1.1rem;
   border-radius: var(--radius-sm);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
+  line-height: normal;
   cursor: pointer;
+  white-space: nowrap;
   margin-top: 0.75rem;
 }
 
@@ -191,9 +197,24 @@ button:disabled {
 }
 
 .btn-danger {
-  background: transparent;
   color: var(--danger);
-  border: 1px solid #e0b4af;
+  border-color: #e0b4af;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-tint);
+}
+
+/* Buttons inside notices and cards: same spacing above, so a filled and an outlined
+   button next to each other sit on one line. */
+.modal-note .btn-primary,
+.modal-note .btn-secondary,
+.modal-note .btn-danger,
+.payment-result .btn-primary,
+.payment-result .btn-secondary,
+.payment-result .btn-danger {
+  margin-top: 0.75rem;
+  margin-right: 0.4rem;
 }
 
 /* ===== Auth pages ===== */
@@ -477,9 +498,12 @@ button:disabled {
 
 .project-row-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
+/* Compact size for every button in a row, whatever its look. */
 .project-row-actions button {
   border: 1px solid var(--rule-input);
   background: var(--surface);
@@ -488,6 +512,8 @@ button:disabled {
   border-radius: var(--radius-sm);
   font-size: 0.82rem;
   font-weight: 500;
+  line-height: normal;
+  margin: 0;
   cursor: pointer;
 }
 
@@ -495,9 +521,29 @@ button:disabled {
   border-color: var(--ink);
 }
 
+.project-row-actions .btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+.project-row-actions .btn-primary:hover:not(:disabled) {
+  background: #3a3a35;
+}
+
+.project-row-actions .btn-secondary {
+  border-color: var(--ink);
+  font-weight: 600;
+}
+
 .project-row-actions .btn-danger {
   color: var(--danger);
   border-color: #e0b4af;
+}
+
+.project-row-actions .btn-danger:hover:not(:disabled) {
+  border-color: var(--danger);
 }
 
 /* ===== Status badges ===== */

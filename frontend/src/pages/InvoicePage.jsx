@@ -134,7 +134,7 @@ export default function InvoicePage() {
         {invoice.status === "payable" && (
           <>
             {payError && <div className="form-error-banner">{payError}</div>}
-            <button onClick={handlePay} disabled={paying}>
+            <button className="btn-primary" onClick={handlePay} disabled={paying}>
               {paying ? "Opening secure checkout..." : "Pay securely"}
             </button>
             <p className="modal-note">
@@ -179,7 +179,7 @@ export default function InvoicePage() {
             </p>
             {!showReport && (
               <>
-                <button onClick={handleAccept} disabled={accepting}>
+                <button className="btn-primary" onClick={handleAccept} disabled={accepting}>
                   {accepting ? "Please wait..." : "Accept the work"}
                 </button>{" "}
                 <button className="btn-secondary" onClick={() => setShowReport(true)}>

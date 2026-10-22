@@ -168,11 +168,12 @@ export default function MyDevProjects() {
                 </span>
               )}
 
+              <div className="project-row-actions">
               {project.status === "in_progress" &&
                 project.is_funded &&
                 project.delivery?.status !== "delivered" &&
                 project.dispute?.status !== "open" && (
-                  <button onClick={() => handleDeliver(project)} disabled={deliveringId === project.id}>
+                  <button className="btn-primary" onClick={() => handleDeliver(project)} disabled={deliveringId === project.id}>
                     {deliveringId === project.id ? "Sending..." : "Mark as delivered"}
                   </button>
                 )}
@@ -190,6 +191,7 @@ export default function MyDevProjects() {
 
               {project.status === "completed" && !reviewedMap[project.id] && (
                 <button
+                  className="btn-primary"
                   onClick={() =>
                     setReviewingProjectId(
                       reviewingProjectId === project.id ? null : project.id
@@ -199,6 +201,7 @@ export default function MyDevProjects() {
                   Leave a review
                 </button>
               )}
+              </div>
             </div>
 
             {project.status === "in_progress" &&
@@ -226,6 +229,7 @@ export default function MyDevProjects() {
                     />
                   </div>
                   <button
+                    className="btn-primary"
                     onClick={() => handlePriceDecision(project, true)}
                     disabled={respondingId === project.id}
                   >
