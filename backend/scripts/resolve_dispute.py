@@ -7,6 +7,13 @@ Commands:
     list                         open disputes, oldest first
     show <project_id>            everything you need to decide one
     resolve <project_id> release|refund|split [--refund-amount N] [--note "..."]
+    refunds                      payments waiting for a refund, and refunds Paystack says failed
+    refund-project <project_id> [--note "..."]
+                                 refund the client in full for a funded project that has NO
+                                 problem report (the client or developer contacted you directly)
+    mark-refunded <paystack_reference>
+                                 record that a payment waiting for a refund has been refunded,
+                                 if Paystack's refund message did not arrive
 
 For refund and split, issue the refund to the client in the Paystack dashboard FIRST
 (Transactions -> the payment -> Refund). This tool then records the outcome, pays out
@@ -21,7 +28,7 @@ from bson.errors import InvalidId
 
 from app import database
 from app.config import settings
-from app.delivery import resolve_dispute, held_transaction
+from app.delivery import resolve_dispute, refund_project, held_transaction
 
 
 def _oid(value: str) -> ObjectId:
@@ -47,6 +54,41 @@ async def cmd_list(db, _args):
     for p in projects:
         d = p["dispute"]
         print(f"{p['_id']}  {p['title']!r}  opened by {d['opened_by']} on {d['opened_at']:%d %b %Y}")
+
+
+async def cmd_refunds(db, _args):
+    due = await db.transactions.find(
+        {"needs_refund": True, "refund_status": {"$ne": "processed"}}
+    ).to_list(length=None)
+    failed = await db.transactions.find({"refund_status": "failed"}).to_list(length=None)
+    if not due and not failed:
+        print("Nothing is waiting for a refund, and no refund has failed.")
+        return
+    for t in due:
+        print(f"REFUND DUE   {settings.CURRENCY} {t['total_amount']:,.2f}  paystack ref={t.get('paystack_reference')}  project={t['project_id']}  state={t.get('refund_status', 'not started')}")
+    for t in failed:
+        print(f"REFUND FAILED {settings.CURRENCY} {t['total_amount']:,.2f}  paystack ref={t.get('paystack_reference')}  project={t['project_id']}  (the client has NOT been paid back)")
+    print("\nRefund in the Paystack dashboard (Transactions -> the payment -> Refund). Paystack then tells us it went through.")
+
+
+async def cmd_mark_refunded(db, args):
+    from datetime import datetime, timezone
+    result = await db.transactions.update_one(
+        {"paystack_reference": args.reference, "needs_refund": True},
+        {"$set": {"needs_refund": False, "refund_status": "processed", "refunded_at": datetime.now(timezone.utc)}},
+    )
+    print("Recorded as refunded." if result.matched_count else "No payment waiting for a refund has that reference.")
+
+
+async def cmd_refund_project(db, args):
+    print("Before continuing: have you already refunded this client IN FULL in the Paystack dashboard?")
+    if input("Type 'yes' to continue: ").strip().lower() != "yes":
+        sys.exit("Stopped. Issue the refund in Paystack first, then run this again.")
+    try:
+        result = await refund_project(db, _oid(args.project_id), args.note)
+    except ValueError as e:
+        sys.exit(f"Could not refund: {e}")
+    print(f"Done. Recorded as refunded: {settings.CURRENCY} {result['refunded']:,.2f}. The project is now {result['project_status']}; the salesperson can reopen it.")
 
 
 async def cmd_show(db, args):
@@ -99,6 +141,14 @@ async def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list")
+    sub.add_parser("refunds")
+
+    rp = sub.add_parser("refund-project")
+    rp.add_argument("project_id")
+    rp.add_argument("--note", default=None, help="Short note recorded on the project")
+
+    mr = sub.add_parser("mark-refunded")
+    mr.add_argument("reference")
 
     show = sub.add_parser("show")
     show.add_argument("project_id")
@@ -113,7 +163,7 @@ async def main():
 
     await database.connect_to_mongo()
     try:
-        await {"list": cmd_list, "show": cmd_show, "resolve": cmd_resolve}[args.command](database.get_database(), args)
+        await {"list": cmd_list, "show": cmd_show, "resolve": cmd_resolve, "refunds": cmd_refunds, "refund-project": cmd_refund_project, "mark-refunded": cmd_mark_refunded}[args.command](database.get_database(), args)
     finally:
         await database.close_mongo_connection()
 

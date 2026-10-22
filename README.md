@@ -67,7 +67,8 @@ fly secrets set \
   CORS_ORIGINS=https://projectech.dev \
   FRONTEND_URL=https://projectech.dev \
   PAYSTACK_PUBLIC_KEY=... PAYSTACK_SECRET_KEY=... \
-  SMTP_USERNAME=... SMTP_PASSWORD=... EMAIL_FROM=...
+  SMTP_USERNAME=... SMTP_PASSWORD=... EMAIL_FROM=... \
+  ADMIN_EMAIL=you@example.com
 fly deploy
 ```
 
@@ -75,7 +76,7 @@ The app refuses to start without a strong `SECRET_KEY`. Changing it later logs e
 
 Frontend on Render (Static Site): root directory `frontend`, build command `npm install && npm run build`, publish directory `dist`, environment variable `VITE_API_BASE_URL` set to the Fly API address, and one rewrite rule: source `/*`, destination `/index.html`, action Rewrite. Without that rule, refreshing a page or following an email or Paystack link returns a 404.
 
-Paystack dashboard: set the webhook URL to `https://<your-fly-app>.fly.dev/api/payments/webhook`, subscribe it to `charge.success` and the `transfer.*` events, and turn off "Confirm transfers before sending" so M-Pesa withdrawals go out without manual approval.
+Paystack dashboard: set the webhook URL to `https://<your-fly-app>.fly.dev/api/payments/webhook`, subscribe it to `charge.success`, the `transfer.*` events and the `refund.*` events, and turn off "Confirm transfers before sending" so M-Pesa withdrawals go out without manual approval.
 
 ### Operations
 
@@ -83,7 +84,11 @@ Paystack dashboard: set the webhook URL to `https://<your-fly-app>.fly.dev/api/p
   `python -m scripts.resolve_dispute list`, `show <project_id>`, and `resolve <project_id> release|refund|split --refund-amount N --note "..."`.
   For a refund or split, issue the refund to the client in the Paystack dashboard first. The script only records the outcome and pays out what remains.
 - **After a refund.** Resolving a dispute as `refund` records the payment as refunded and cancels the project. The salesperson can then use Reopen project: it goes back on the market, the earlier developer is removed (the finished engagement is kept in `previous_engagements`), applicants who were turned away automatically are considered again, and the same client invoice link works for the next developer and price.
-- **Payments that need a refund.** If a client pays a retired link at an old price, the transaction is flagged `needs_refund: true` and the salesperson is notified. Refund it in Paystack.
+- **Payments that need a refund.** If a client pays a retired link at an old price, the transaction is flagged `needs_refund: true` and the salesperson is notified. Run `python -m scripts.resolve_dispute refunds` to list them, and refund each in Paystack. When Paystack reports the refund as processed, the flag clears by itself. `mark-refunded <paystack_reference>` does the same by hand if that message never arrives.
+- **Refund with no problem report.** If the client or developer contacts you directly, refund the client in full in Paystack, then run `refund-project <project_id> --note "..."`. It records the refund, cancels the project and tells both people. A project with an open problem report is closed with `resolve` instead.
+- **Failed refunds.** Paystack's `refund.failed` message marks the payment `refund_status: failed`. It appears in the `refunds` list and in the alert email, because the client has not been paid back.
+- **Alerts.** With `ADMIN_EMAIL` set, each background cycle sends ONE email listing anything new that needs a person: problem reports, payments to refund, failed refunds and emails that could not be sent. Each item is mentioned once (a failed refund again if it fails again). If the alert itself cannot be sent, it is retried next cycle. Without `ADMIN_EMAIL` nothing is sent and the items stay in the database.
+- **Signing out.** Changing or resetting a password signs out every other device. The device that changed it stays signed in.
 - **Email.** Sent through any SMTP provider (Resend in production) using the `SMTP_*` and `EMAIL_FROM` settings. New accounts get a welcome email with a confirmation link. Until they confirm, people can browse but cannot apply, post, take payments or withdraw. Every email that fails to send is written to the `email_failures` collection (kind, recipient, reason) and logged as `EMAIL FAILED`, so a broken key or domain shows up instead of failing quietly. A failed client review email also shows the salesperson a warning with a resend button and the link to share by hand. Accounts created before verification existed show the confirm banner too.
 - **Background job.** Every `BACKGROUND_JOB_INTERVAL_SECONDS` (15 minutes) each server releases deliveries whose review window ended and payouts whose hold ended. It is safe with several servers running.
 - **Backups.** Atlas free (M0) clusters have no backups; use `mongodump --uri "$MONGODB_URL" --gzip --archive=projectech-$(date +%F).gz` on a schedule and keep copies off the machine. Flex clusters take daily snapshots automatically, and M10 and above have Cloud Backup. Because this database holds money records, use a tier with backups before launch, and test a restore once.

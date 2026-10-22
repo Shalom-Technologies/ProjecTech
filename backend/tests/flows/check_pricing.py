@@ -143,7 +143,7 @@ def load(name, path):
     m = importlib.util.module_from_spec(spec); sys.modules[name] = m; spec.loader.exec_module(m); return m
 async def send_review_started_email(**kw): pass
 mod("app.email_client", send_review_started_email=send_review_started_email)
-load("app.lookups", "app/lookups.py"); load("app.mailer", "app/mailer.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py"); load("app.escrow", "app/escrow.py"); load("app.delivery", "app/delivery.py")
+load("app.lookups", "app/lookups.py"); load("app.mailer", "app/mailer.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py"); load("app.escrow", "app/escrow.py"); load("app.admin_alerts", "app/admin_alerts.py"); load("app.refunds", "app/refunds.py"); load("app.delivery", "app/delivery.py")
 projects = load("app.routes.projects", "app/routes/projects.py")
 payments = load("app.routes.payments", "app/routes/payments.py")
 invoices = load("app.routes.invoices", "app/routes/invoices.py")

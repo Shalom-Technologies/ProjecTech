@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = ""
     # Where the website lives. Used in emails, invoice links and the Paystack return page.
     FRONTEND_URL: str = "http://localhost:5173"
+    # Who hears about things only a person can fix: problem reports, payments to refund, refunds
+    # that failed, emails that could not be sent. Leave empty to only write them to the logs.
+    ADMIN_EMAIL: str = ""
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
     @field_validator("SECRET_KEY")
