@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { invoicesApi } from "../services/invoices";
 import ReportProblemForm from "../components/ReportProblemForm";
 
@@ -140,7 +140,8 @@ export default function InvoicePage() {
             <p className="modal-note">
               You'll be taken to Paystack to pay by M-Pesa or card. The money is held
               safely. It is only released to the team after you accept the finished work,
-              or 7 days after it is delivered if you do not object.
+              or 7 days after it is delivered if you do not object. By paying you agree to
+              the <Link to="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</Link>.
             </p>
           </>
         )}

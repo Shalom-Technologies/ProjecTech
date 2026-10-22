@@ -11,6 +11,15 @@ class UserRegister(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     role: Literal["developer", "salesperson"]
+    # Must be true: the person is 18 or older and accepts the Terms and Privacy Policy.
+    accepted_terms: bool
+
+    @field_validator("accepted_terms")
+    @classmethod
+    def must_accept_terms(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("You must agree to the Terms of Service and Privacy Policy to sign up")
+        return value
 
     # Optional role-specific fields
     skills: Optional[list[str]] = None          # developer

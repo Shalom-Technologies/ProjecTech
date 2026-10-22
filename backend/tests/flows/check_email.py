@@ -229,8 +229,15 @@ from app.schemas import UserRegister, ForgotPasswordRequest, VerifyEmailRequest
 
 async def main():
     # ---- registration sends a welcome + confirmation email ----
-    r = await auth.register(None, UserRegister(email="new@x.com", password="Passw0rd!!", first_name="Wanjiru", last_name="K", role="salesperson", company_name="Co"))
+    r = await auth.register(None, UserRegister(email="new@x.com", password="Passw0rd!!", first_name="Wanjiru", last_name="K", role="salesperson", company_name="Co", accepted_terms=True))
     user = db.users.docs[0]
+    check("the date of the accepted terms is recorded", user["terms_version"] == auth.TERMS_VERSION and user["terms_accepted_at"] is not None)
+    for bad in ({"accepted_terms": False}, {}):
+        try:
+            UserRegister(email="n@x.com", password="Passw0rd!!", first_name="N", last_name="K", role="developer", **bad)
+            check(f"sign-up without agreeing is refused {bad}", False)
+        except Exception:
+            check(f"sign-up without agreeing is refused {bad}", True)
     check("new account starts unverified", user["email_verified"] is False and r.user.email_verified is False)
     check("welcome email sent with a confirm link", len(mail["sent"]) == 1 and mail["sent"][0][0] == "verify" and mail["sent"][0][3] is True and "/verify-email?token=verifytoken0001" in mail["sent"][0][2])
     rec = db.email_verifications.docs[0]
@@ -279,7 +286,7 @@ async def main():
     for d in db.email_verifications.docs: d["created_at"] = datetime.now(timezone.utc) - timedelta(minutes=5)
     await expect_http("resend reports a failed send -> 502", 502, auth.resend_verification(None, current_user=db.users.docs[0]))
     check("verification failure recorded too", db.email_failures.docs[-1]["kind"] == "verification")
-    r = await auth.register(None, UserRegister(email="b@x.com", password="Passw0rd!!", first_name="B", last_name="K", role="developer", skills=["py"]))
+    r = await auth.register(None, UserRegister(email="b@x.com", password="Passw0rd!!", first_name="B", last_name="K", role="developer", skills=["py"], accepted_terms=True))
     check("registration still succeeds when the welcome email fails", r.user.email == "b@x.com" and db.email_failures.docs[-1]["to_email"] == "b@x.com")
     mail["fail"] = False
 

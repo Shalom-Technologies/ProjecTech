@@ -258,6 +258,37 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+.auth-form .terms-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 1.25rem 0 0;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.auth-form .terms-check input {
+  width: auto;
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.legal-page .blog-post-meta {
+  margin-bottom: 1.5rem;
+}
+
+.legal-page .blog-post-body h2 {
+  margin-top: 2.2rem;
+}
+
+.legal-switch {
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
 .auth-error {
   background: var(--danger-tint);
   color: var(--danger);

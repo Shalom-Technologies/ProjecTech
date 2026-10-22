@@ -99,6 +99,8 @@ export default function Home() {
         <span>© {new Date().getFullYear()} ProjecTech</span>
         <nav>
           <Link to="/blog">Blog</Link>
+          <Link to="/terms">Terms</Link>
+          <Link to="/privacy">Privacy</Link>
           <Link to="/login">Log in</Link>
           <Link to="/register">Sign up</Link>
         </nav>

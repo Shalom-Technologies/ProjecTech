@@ -184,6 +184,9 @@ async def get_my_assigned_projects(
             "assignment_date": p.get("assignment_date"),
             "salesperson_id": str(p["salesperson_id"]),
             "salesperson_name": f"{salesperson['first_name']} {salesperson['last_name']}" if salesperson else None,
+            # Only the salesperson who posted a project sees its client's contact details.
+            "client_name": p.get("client_name") if p["salesperson_id"] == current_user["_id"] else None,
+            "client_email": p.get("client_email") if p["salesperson_id"] == current_user["_id"] else None,
             "created_at": p["created_at"],
         })
 
@@ -203,6 +206,8 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
         raise HTTPException(status_code=404, detail="Project not found")
 
     salesperson = await db.users.find_one({"_id": project["salesperson_id"]})
+    is_owner = project["salesperson_id"] == current_user["_id"]
+    is_assigned = project.get("assigned_to") == current_user["_id"]
 
     return {
         "id": str(project["_id"]),
@@ -213,8 +218,10 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
         "currency": project.get("currency", settings.CURRENCY),
         "status": project["status"],
         "deadline": project["deadline"],
-        "client_name": project["client_name"],
-        "client_email": project["client_email"],
+        # The client is not a ProjecTech user. Only the salesperson who posted the project sees
+        # the email; the assigned developer sees the name. Everyone else sees neither.
+        "client_name": project.get("client_name") if (is_owner or is_assigned) else None,
+        "client_email": project.get("client_email") if is_owner else None,
         "salesperson_id": str(project["salesperson_id"]),
         "salesperson_name": f"{salesperson['first_name']} {salesperson['last_name']}" if salesperson else None,
         "assigned_to": str(project["assigned_to"]) if project.get("assigned_to") else None,
