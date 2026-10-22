@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import VerifyEmail from "./pages/VerifyEmail";
 import DashboardRedirect from "./pages/DashboardRedirect";
 import DashboardHome from "./pages/DashboardHome";
 import PostProject from "./pages/PostProject";
@@ -24,9 +25,11 @@ import TransactionHistory from "./pages/TransactionHistory";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import PaymentVerify from "./pages/PaymentVerify";
+import InvoicePage from "./pages/InvoicePage";
 import Blog from "./pages/Blog";
 import BlogPost from "./pages/BlogPost";
 import Home from "./pages/Home";
+import NotFound from "./pages/NotFound";
 
 function MessageToast() {
   const { toast, dismissToast } = useSocket();
@@ -65,6 +68,7 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:slug" element={<BlogPost />} />
 
@@ -163,6 +167,7 @@ function App() {
 
             {/* Wallet routes */}
             <Route path="/payment/verify" element={<PaymentVerify />} />
+            <Route path="/pay/:token" element={<InvoicePage />} />
             <Route
               path="/dashboard/wallet"
               element={
@@ -198,6 +203,7 @@ function App() {
             />
 
             <Route path="/" element={<Home />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
       </SocketProvider>

@@ -5,8 +5,7 @@ import { walletApi } from "../services/wallet";
 export default function Wallet() {
   const [wallet, setWallet] = useState(null);
   const [showBankForm, setShowBankForm] = useState(false);
-  const [accountNumber, setAccountNumber] = useState("");
-  const [bankCode, setBankCode] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -21,19 +20,22 @@ export default function Wallet() {
     loadWallet();
   }, [loadWallet]);
 
-  const handleAddBank = async (e) => {
+  const handleAddPayout = async (e) => {
     e.preventDefault();
     setError("");
     setSubmitting(true);
     try {
-      await walletApi.addBankAccount({ account_number: accountNumber, bank_code: bankCode });
-      setSuccessMsg("Bank account added successfully.");
+      await walletApi.addPayoutAccount({ phone_number: phoneNumber });
+      setSuccessMsg("M-Pesa number saved.");
       setShowBankForm(false);
+      setPhoneNumber("");
+      loadWallet();
     } catch (err) {
+      const detail = err.response?.data?.detail;
       setError(
         err.response?.data?.message ||
-          err.response?.data?.detail ||
-          "Could not add bank account."
+          (Array.isArray(detail) ? detail[0]?.msg : detail) ||
+          "Could not save M-Pesa number."
       );
     } finally {
       setSubmitting(false);
@@ -86,6 +88,12 @@ export default function Wallet() {
           <div className="wallet-label">Available balance</div>
           <div className="wallet-value">KES{wallet.wallet_balance.toLocaleString()}</div>
         </div>
+        {wallet.pending_balance > 0 && (
+          <div className="wallet-card">
+            <div className="wallet-label">Pending (released, available soon)</div>
+            <div className="wallet-value">KES{wallet.pending_balance.toLocaleString()}</div>
+          </div>
+        )}
         <div className="wallet-card">
           <div className="wallet-label">Total earned</div>
           <div className="wallet-value">KES{wallet.total_earned.toLocaleString()}</div>
@@ -97,7 +105,7 @@ export default function Wallet() {
 
       <div className="wallet-actions">
         <div className="wallet-action-card">
-          <h3>Withdraw funds</h3>
+          <h3>Withdraw to M-Pesa</h3>
           <form onSubmit={handleWithdraw}>
             <div className="field">
               <label htmlFor="withdrawAmount">Amount (KES)</label>
@@ -110,39 +118,36 @@ export default function Wallet() {
               />
             </div>
             <button type="submit" disabled={submitting}>
-              {submitting ? "Processing..." : "Withdraw to bank"}
+              {submitting ? "Processing..." : "Withdraw to M-Pesa"}
             </button>
           </form>
         </div>
 
         <div className="wallet-action-card">
-          <h3>Bank account</h3>
+          <h3>M-Pesa payout number</h3>
+          {wallet.payout_account && (
+            <p>
+              {wallet.payout_account.account_name} · {wallet.payout_account.phone_number}
+            </p>
+          )}
           {!showBankForm ? (
             <button className="btn-secondary" onClick={() => setShowBankForm(true)}>
-              Add / update bank account
+              {wallet.payout_account ? "Change M-Pesa number" : "Add M-Pesa number"}
             </button>
           ) : (
-            <form onSubmit={handleAddBank}>
+            <form onSubmit={handleAddPayout}>
               <div className="field">
-                <label htmlFor="accountNumber">Account number</label>
+                <label htmlFor="phoneNumber">M-Pesa phone number</label>
                 <input
-                  id="accountNumber"
-                  value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
-                  maxLength={10}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="bankCode">Bank code</label>
-                <input
-                  id="bankCode"
-                  value={bankCode}
-                  onChange={(e) => setBankCode(e.target.value)}
-                  placeholder="e.g. 058 for GTBank"
+                  id="phoneNumber"
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="e.g. 0712345678"
                 />
               </div>
               <button type="submit" disabled={submitting}>
-                {submitting ? "Verifying..." : "Save bank account"}
+                {submitting ? "Saving..." : "Save M-Pesa number"}
               </button>
             </form>
           )}

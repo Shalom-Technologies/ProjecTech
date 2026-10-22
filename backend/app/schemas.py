@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr, Field
+import re
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, Literal
 from datetime import datetime
 from typing import List
@@ -28,6 +29,7 @@ class UserResponse(BaseModel):
     last_name: str
     role: str
     created_at: datetime
+    email_verified: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -40,7 +42,8 @@ class ProjectCreate(BaseModel):
     description: str = Field(min_length=30, max_length=3000)
     category: str
     budget: float = Field(gt=0)
-    currency: str = "NGN"
+    # Ignored by the server: every project is created in the platform currency.
+    currency: str = "KES"
     deadline: datetime
     client_name: str
     client_email: EmailStr
@@ -91,7 +94,23 @@ class MessageResponse(BaseModel):
 
 class PaymentInitialize(BaseModel):
     project_id: str
+    # Optional: the amount is always the project's agreed price. If a client
+    # sends one anyway it must match, so a stale screen cannot charge a wrong sum.
+    amount: Optional[float] = Field(None, gt=0)
+
+
+class PriceProposalCreate(BaseModel):
     amount: float = Field(gt=0)
+    reason: str = Field(min_length=10, max_length=500)
+
+
+class PriceProposalDecision(BaseModel):
+    approve: bool
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class ProblemReport(BaseModel):
+    reason: str = Field(min_length=10, max_length=1000)
 
 
 class PaymentVerify(BaseModel):
@@ -124,12 +143,23 @@ class UserProfileResponse(BaseModel):
 class WalletResponse(BaseModel):
     wallet_balance: float
     total_earned: float
-    currency: str = "NGN"
+    currency: str = "KES"
 
 
-class BankAccountAdd(BaseModel):
-    account_number: str = Field(min_length=10, max_length=10)
-    bank_code: str
+class PayoutAccountAdd(BaseModel):
+    """M-Pesa number that withdrawals are paid to."""
+    phone_number: str
+
+    @field_validator("phone_number")
+    @classmethod
+    def normalise_kenyan_number(cls, value: str) -> str:
+        # Accepts 0712345678, 712345678, 254712345678 and +254712345678
+        # (also 01xx numbers) and stores it as 0712345678.
+        digits = re.sub(r"[\s\-()]", "", value)
+        match = re.fullmatch(r"(?:\+?254|0)?([71]\d{8})", digits)
+        if not match:
+            raise ValueError("Enter a valid Kenyan mobile number, e.g. 0712345678")
+        return "0" + match.group(1)
 
 
 class WithdrawRequest(BaseModel):
@@ -148,6 +178,10 @@ class ReviewCreate(BaseModel):
     reviewed_user_id: str
     rating: float = Field(ge=1, le=5)
     comment: str = Field(min_length=10, max_length=1000)
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
 
 
 class ChangePasswordRequest(BaseModel):

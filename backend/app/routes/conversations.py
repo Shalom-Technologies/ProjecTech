@@ -4,6 +4,7 @@ from bson.errors import InvalidId
 
 from app.database import get_database
 from app.dependencies import get_current_user
+from app.lookups import users_by_id, projects_by_id
 
 router = APIRouter(prefix="/api/conversations", tags=["Conversations"])
 
@@ -25,11 +26,14 @@ async def list_conversations(current_user: dict = Depends(get_current_user)):
 
     conversations = await cursor.to_list(length=100)
 
+    others = [next((p for p in c["participants"] if p != current_user["_id"]), None) for c in conversations]
+    users = await users_by_id(db, others)
+    projects = await projects_by_id(db, [c["project_id"] for c in conversations])
+
     result = []
-    for conv in conversations:
-        other_id = next((p for p in conv["participants"] if p != current_user["_id"]), None)
-        other_user = await db.users.find_one({"_id": other_id}) if other_id else None
-        project = await db.projects.find_one({"_id": conv["project_id"]})
+    for conv, other_id in zip(conversations, others):
+        other_user = users.get(other_id)
+        project = projects.get(conv["project_id"])
 
         result.append({
             "id": str(conv["_id"]),
@@ -82,11 +86,9 @@ async def get_conversation_messages(
     per_page: int = Query(20, ge=1, le=100),
 ):
     db = get_database()
-    print(f"DEBUG: querying database '{db.name}' for conversation_id '{conversation_id}'")
     conv_oid = to_object_id(conversation_id)
 
     conversation = await db.conversations.find_one({"_id": conv_oid})
-    print(f"DEBUG: found conversation? {conversation is not None}")
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -101,9 +103,11 @@ async def get_conversation_messages(
     messages = await cursor.to_list(length=per_page)
     messages.reverse()  # chronological order for display
 
+    senders = await users_by_id(db, [m["sender_id"] for m in messages])
+
     data = []
     for m in messages:
-        sender = await db.users.find_one({"_id": m["sender_id"]})
+        sender = senders.get(m["sender_id"])
         data.append({
             "id": str(m["_id"]),
             "sender_id": str(m["sender_id"]),

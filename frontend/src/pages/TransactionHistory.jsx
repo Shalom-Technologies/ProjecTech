@@ -42,9 +42,18 @@ export default function TransactionHistory() {
               <div className="transaction-date">
                 {new Date(t.created_at).toLocaleDateString()} ·{" "}
                 {t.transaction_type.replace("_", " ")}
+                {t.status && t.status !== "success" && (
+                  <span className={`status-badge status-${t.status}`}> {t.status}</span>
+                )}
+                {t.status === "held" && t.available_at && (
+                  <span> · available from {new Date(t.available_at).toLocaleDateString()}</span>
+                )}
               </div>
             </div>
-            <div className={`transaction-amount ${t.amount < 0 ? "negative" : "positive"}`}>
+            <div
+              className={`transaction-amount ${t.amount < 0 ? "negative" : "positive"}`}
+              style={t.status === "failed" || t.status === "reversed" ? { textDecoration: "line-through" } : undefined}
+            >
               {t.amount < 0 ? "-" : "+"}KES{Math.abs(t.amount).toLocaleString()}
             </div>
           </div>

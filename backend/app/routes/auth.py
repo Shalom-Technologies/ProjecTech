@@ -6,8 +6,10 @@ from app.schemas import UserRegister, UserLogin, TokenResponse, UserResponse
 from app.security import hash_password, verify_password, create_access_token
 from app.rate_limit import limiter
 from datetime import timedelta
-from app.schemas import ForgotPasswordRequest, ResetPasswordRequest
-from app.security import generate_reset_token, hash_password
+from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest
+from app.verification import issue_verification_email, confirm_email
+from app.mailer import send_or_record
+from app.security import generate_reset_token, hash_reset_token, hash_password
 from app.email_client import send_password_reset_email
 from app.config import settings
 
@@ -36,6 +38,7 @@ async def register(request: Request, user_data: UserRegister):
         "role": user_data.role,
         "created_at": datetime.now(timezone.utc),
         "wallet_balance": 0.0,
+        "email_verified": False,
     }
 
     # Role-specific fields
@@ -49,6 +52,11 @@ async def register(request: Request, user_data: UserRegister):
 
     token = create_access_token({"sub": user_id, "role": user_data.role})
 
+    # Welcome + confirmation link. If it fails the account still works, and the dashboard
+    # offers "resend" (the failure is recorded in email_failures).
+    user_doc["_id"] = result.inserted_id
+    await issue_verification_email(db, user_doc, is_welcome=True, enforce_cooldown=False)
+
     return TokenResponse(
         access_token=token,
         user=UserResponse(
@@ -58,6 +66,7 @@ async def register(request: Request, user_data: UserRegister):
             last_name=user_doc["last_name"],
             role=user_doc["role"],
             created_at=user_doc["created_at"],
+            email_verified=False,
         )
     )
 
@@ -82,6 +91,7 @@ async def login(request: Request, credentials: UserLogin):
             last_name=user["last_name"],
             role=user["role"],
             created_at=user["created_at"],
+            email_verified=bool(user.get("email_verified")),
         )
     )
 
@@ -105,7 +115,7 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
     await db.password_resets.delete_many({"user_id": user["_id"]})
     await db.password_resets.insert_one({
         "user_id": user["_id"],
-        "token": token,
+        "token_hash": hash_reset_token(token),
         "expires_at": expires_at,
         "used": False,
         "created_at": datetime.now(timezone.utc),
@@ -113,20 +123,28 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
 
     reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
 
-    try:
-        await send_password_reset_email(user["email"], reset_link, user["first_name"])
-    except Exception:
-        # Don't leak email-sending failures to the client either
-        pass
+    # The person always sees the same message, but a failure is logged and recorded
+    # (email_failures) so a broken email setup does not go unnoticed.
+    await send_or_record(
+        db, "password_reset",
+        send_password_reset_email(user["email"], reset_link, user["first_name"]),
+        to_email=user["email"], user_id=user["_id"],
+    )
 
     return generic_response
 
 
 @router.post("/reset-password")
-async def reset_password(data: ResetPasswordRequest):
+@limiter.limit("10/minute")
+async def reset_password(request: Request, data: ResetPasswordRequest):
     db = get_database()
 
-    reset_record = await db.password_resets.find_one({"token": data.token, "used": False})
+    # Claim the token in one step so it can only ever be used once, even if the link is
+    # submitted twice at the same moment.
+    reset_record = await db.password_resets.find_one_and_update(
+        {"token_hash": hash_reset_token(data.token), "used": False},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc)}},
+    )
 
     if not reset_record:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
@@ -138,22 +156,17 @@ async def reset_password(data: ResetPasswordRequest):
     if expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-    new_password_hash = hash_password(data.new_password)
-
     await db.users.update_one(
         {"_id": reset_record["user_id"]},
-        {"$set": {"password_hash": new_password_hash, "updated_at": datetime.now(timezone.utc)}}
-    )
-
-    await db.password_resets.update_one(
-        {"_id": reset_record["_id"]},
-        {"$set": {"used": True}}
+        {"$set": {"password_hash": hash_password(data.new_password), "updated_at": datetime.now(timezone.utc)}}
     )
 
     return {"message": "Password reset successfully. You can now log in with your new password."}
 
 @router.post("/change-password")
+@limiter.limit("5/minute")
 async def change_password(
+    request: Request,
     data: ChangePasswordRequest,
     current_user: dict = Depends(get_current_user)
 ):
@@ -166,3 +179,26 @@ async def change_password(
         {"$set": {"password_hash": hash_password(data.new_password), "updated_at": datetime.now(timezone.utc)}}
     )
     return {"message": "Password changed successfully"}
+
+
+@router.post("/verify-email")
+@limiter.limit("20/minute")
+async def verify_email(request: Request, data: VerifyEmailRequest):
+    """Called by the confirmation page when someone opens the link in their email."""
+    await confirm_email(get_database(), data.token)
+    return {"message": "Your email address is confirmed."}
+
+
+@router.post("/resend-verification")
+@limiter.limit("5/minute")
+async def resend_verification(request: Request, current_user: dict = Depends(get_current_user)):
+    if current_user.get("email_verified"):
+        raise HTTPException(status_code=400, detail="Your email address is already confirmed.")
+
+    sent = await issue_verification_email(get_database(), current_user)
+    if not sent:
+        raise HTTPException(
+            status_code=502,
+            detail="We couldn't send the email just now. Please try again in a few minutes.",
+        )
+    return {"message": f"We sent a confirmation link to {current_user['email']}."}

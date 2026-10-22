@@ -15,6 +15,14 @@ primary_region = 'jnb'
   min_machines_running = 1
   processes = ['app']
 
+  # Fly restarts the machine if this stops answering.
+  [[http_service.checks]]
+    grace_period = '20s'
+    interval = '30s'
+    method = 'GET'
+    path = '/health'
+    timeout = '5s'
+
 [[vm]]
   size = 'shared-cpu-1x'
-  memory = '256mb'
+  memory = '512mb'
