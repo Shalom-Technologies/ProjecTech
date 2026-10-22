@@ -12,6 +12,12 @@ export default function LegalPage({ title, updated, children }) {
     };
   }, [title]);
 
+  // Links such as /privacy#cookies should land on their section.
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView();
+  }, []);
+
   return (
     <div className="lp">
       <PublicNav />

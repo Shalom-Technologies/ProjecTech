@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import LegalPage from "../components/LegalPage";
+import { openCookieSettings } from "../consent";
 
 export default function Privacy() {
   return (
@@ -52,9 +53,9 @@ export default function Privacy() {
         </li>
         <li>A login token stored in your browser so you stay signed in.</li>
         <li>
-          Usage statistics from Google Analytics: pages viewed, device and browser type,
-          approximate location worked out from your IP address, and the cookies Google Analytics
-          sets.
+          Usage statistics from Google Analytics, only if you accept analytics in the cookie
+          banner: pages viewed, device and browser type, approximate location worked out from
+          your IP address, and the cookies Google Analytics sets.
         </li>
         <li>
           A record of any email we could not send: the address, the kind of email and the error.
@@ -85,8 +86,9 @@ export default function Privacy() {
           To keep financial records and answer tax and legal requests. This is a legal duty.
         </li>
         <li>
-          To see how the site is used and improve it. This is our legitimate interest, and you
-          can opt out as described under cookies below.
+          To see how the site is used and improve it with Google Analytics. We do this only if you
+          accept analytics in the cookie banner, so your consent is the ground. You can withdraw
+          it at any time.
         </li>
       </ul>
       <p>We do not sell your personal data.</p>
@@ -115,7 +117,7 @@ export default function Privacy() {
         <li>MongoDB Atlas stores our database, on Amazon Web Services in Cape Town.</li>
         <li>Fly.io runs our server in Johannesburg.</li>
         <li>Render hosts the website's files and sees the IP address of each visitor.</li>
-        <li>Google provides Google Analytics.</li>
+        <li>Google provides Google Analytics and the Google Fonts typeface.</li>
       </ul>
       <p>
         Except for Paystack, which acts for itself when it handles payments, these companies may
@@ -137,15 +139,28 @@ export default function Privacy() {
         require them to protect personal data.
       </p>
 
-      <h2>Cookies and local storage</h2>
+      <h2 id="cookies">Cookies and local storage</h2>
       <p>
         ProjecTech keeps a login token in your browser's local storage. The site needs it to
-        keep you signed in. It expires after 60 minutes and is removed when you log out.
+        keep you signed in, so you cannot switch it off. It expires after 60 minutes and is
+        removed when you log out.
       </p>
       <p>
-        Google Analytics sets cookies to count visitors and see which pages are used. You can
-        block them in your browser settings, or install Google's opt-out add-on from
-        tools.google.com/dlpage/gaoptout. Blocking the login token stops you from signing in.
+        Google Analytics sets cookies to count visitors and see which pages are used. It is off
+        until you accept it in the cookie banner. Until then the analytics script is not loaded,
+        and if you decline it never is. If you accept and later change
+        your mind, we stop the measurement and delete the Google Analytics cookies that your
+        browser holds for our site. We remember your choice in your browser's local storage.
+      </p>
+      <p>
+        The site also loads its typeface from Google Fonts. That means Google receives your IP
+        address when a page loads, whatever you choose in the banner. Google Fonts sets no
+        cookies.
+      </p>
+      <p>
+        <button type="button" className="link-button" onClick={openCookieSettings}>
+          Change your cookie choice
+        </button>
       </p>
 
       <h2>How long we keep it</h2>
