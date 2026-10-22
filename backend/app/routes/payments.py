@@ -15,7 +15,7 @@ from app.schemas import PaymentInitialize, PaymentVerify
 from app.paystack_client import paystack
 from app.config import settings
 from app.rate_limit import limiter
-from app.wallet import refund_withdrawal
+from app.wallet import settle_withdrawal_from_status
 from app.pricing import get_agreed_amount, check_amount_limits, round_money
 from app.escrow import settle_escrow
 from app.delivery import accept_delivery, serialize_delivery, serialize_dispute
@@ -390,19 +390,8 @@ async def _handle_transfer_event(db, event: str, data: dict):
     if not reference:
         return
 
-    if event == "transfer.success":
-        await db.wallet_transactions.update_one(
-            {"paystack_reference": reference, "transaction_type": "withdrawal", "status": "pending"},
-            {"$set": {"status": "success", "settled_at": datetime.now(timezone.utc)}},
-        )
-        return
-
-    # transfer.failed: only a still-pending withdrawal can fail.
-    # transfer.reversed: money was sent, then came back, so success -> reversed is valid too.
-    new_status = "failed" if event == "transfer.failed" else "reversed"
-    allowed_from = ["pending"] if event == "transfer.failed" else ["pending", "success"]
-
-    await refund_withdrawal(db, reference, new_status, allowed_from)
+    status_for_event = {"transfer.success": "success", "transfer.failed": "failed", "transfer.reversed": "reversed"}
+    await settle_withdrawal_from_status(db, reference, status_for_event[event])
 
 
 # ============================================================================

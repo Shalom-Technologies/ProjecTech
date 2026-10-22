@@ -20,6 +20,8 @@ from fastapi import HTTPException
 from app.config import settings
 from app.escrow import settle_escrow, release_matured_holds
 from app.mailer import send_or_record
+from app.paystack_client import paystack
+from app.wallet import reconcile_pending_withdrawals
 from app.pricing import round_money
 
 logger = logging.getLogger(__name__)
@@ -265,8 +267,12 @@ async def run_periodic_jobs(db):
     """Run on a timer. Safe on several servers at once, because every step is an atomic claim."""
     released = await process_due_deliveries(db)
     matured = await release_matured_holds(db)
-    if released or matured:
-        logger.info(f"Periodic jobs: {released} deliveries auto-released, {matured} payout holds matured")
+    withdrawals = await reconcile_pending_withdrawals(db, paystack)
+    if released or matured or withdrawals:
+        logger.info(
+            f"Periodic jobs: {released} deliveries auto-released, {matured} payout holds matured, "
+            f"{withdrawals} stuck withdrawals settled"
+        )
 
 
 # ---------------------------------------------------------------------------
