@@ -10,7 +10,7 @@ from app.dependencies import get_current_user, require_verified_user
 from app.schemas import UserProfileUpdate, PayoutAccountAdd, WithdrawRequest
 from app.paystack_client import paystack
 from app.rate_limit import limiter
-from app.wallet import refund_withdrawal
+from app.wallet import refund_withdrawal, settle_withdrawal_from_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["Users"])
@@ -266,7 +266,22 @@ async def withdraw_funds(
         {"$set": {"paystack_transfer_code": transfer_data.get("transfer_code")}}
     )
 
-    # Stays "pending" until the transfer.success / transfer.failed webhook arrives.
+    # Paystack sometimes answers with the final outcome straight away (always so in test
+    # mode). Use it, so the withdrawal does not wait for a webhook that may never come.
+    immediate = transfer_data.get("status")
+    if immediate in ("success", "failed", "reversed"):
+        outcome = await settle_withdrawal_from_status(db, reference, immediate)
+        if outcome == "success":
+            return {
+                "message": "Withdrawal sent to your M-Pesa.",
+                "status": "success",
+                "amount": amount,
+                "reference": reference,
+            }
+        raise HTTPException(status_code=502, detail="Withdrawal failed, funds have been returned to your wallet")
+
+    # Otherwise it stays "pending" until the transfer.success / transfer.failed webhook arrives
+    # (or the background check asks Paystack, if the webhook never does).
     return {
         "message": "Withdrawal submitted. It will show as complete once M-Pesa confirms it.",
         "status": "pending",

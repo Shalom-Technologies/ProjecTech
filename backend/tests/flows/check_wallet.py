@@ -8,9 +8,17 @@ cfg.settings = types.SimpleNamespace(CURRENCY="KES")
 app = types.ModuleType("app"); app.__path__ = []
 sys.modules["app"] = app; sys.modules["app.config"] = cfg
 
+class HTTPStatusError(Exception):
+    def __init__(self, status): super().__init__(status); self.response = types.SimpleNamespace(status_code=status)
+class RequestError(Exception): pass
+httpx = types.ModuleType("httpx"); httpx.HTTPStatusError, httpx.RequestError = HTTPStatusError, RequestError
+sys.modules["httpx"] = httpx
+
 import importlib.util
 spec = importlib.util.spec_from_file_location("app.wallet", os.path.join(BACKEND, "app", "wallet.py"))
 wallet = importlib.util.module_from_spec(spec); sys.modules["app.wallet"] = wallet; spec.loader.exec_module(wallet)
+
+async def _aw(x): return x
 
 class Coll:
     def __init__(self): self.docs = []
@@ -18,6 +26,8 @@ class Coll:
         for k, v in q.items():
             if isinstance(v, dict) and "$in" in v:
                 if d.get(k) not in v["$in"]: return False
+            elif isinstance(v, dict) and "$lte" in v:
+                if d.get(k) is None or d.get(k) > v["$lte"]: return False
             elif d.get(k) != v: return False
         return True
     async def find_one_and_update(self, q, u):
@@ -26,9 +36,13 @@ class Coll:
                 before = dict(d); d.update(u["$set"]); return before
         return None
     async def insert_one(self, d): self.docs.append(d)
+    def find(self, q):
+        rows = [d for d in self.docs if self._match(d, q)]
+        return types.SimpleNamespace(to_list=lambda length=None: _aw(rows))
     async def update_one(self, q, u):
         for d in self.docs:
             if self._match(d, q):
+                d.update(u.get("$set", {}))
                 for k, v in u.get("$inc", {}).items(): d[k] = d.get(k, 0) + v
                 return
 class DB:
@@ -66,6 +80,45 @@ async def main():
     ok = db.users.docs[0]["wallet_balance"] == 1000; res.append(ok); print("PASS" if ok else "FAIL", "reversed after success refunds once")
     # unknown reference
     ok = (await wallet.refund_withdrawal(db, "nope", *F)) is False; res.append(ok); print("PASS" if ok else "FAIL", "unknown reference ignored")
+
+    # ---- immediate / checked outcomes ----
+    from datetime import datetime, timedelta, timezone
+    def fresh(status="pending", age_min=0, ref="wd_x"):
+        db = DB(); db.users.docs.append({"_id": 1, "wallet_balance": 0})
+        db.wallet_transactions.docs.append({"user_id": 1, "transaction_type": "withdrawal", "amount": -1000, "status": status,
+            "paystack_reference": ref, "created_at": datetime.now(timezone.utc) - timedelta(minutes=age_min)})
+        return db
+    def chk(name, ok): res.append(ok); print("PASS" if ok else "FAIL", name)
+
+    db = fresh(); await wallet.settle_withdrawal_from_status(db, "wd_x", "success"); await wallet.settle_withdrawal_from_status(db, "wd_x", "success")
+    chk("immediate success marks it complete", db.wallet_transactions.docs[0]["status"] == "success" and db.users.docs[0]["wallet_balance"] == 0)
+    db = fresh(); await wallet.settle_withdrawal_from_status(db, "wd_x", "failed"); await wallet.settle_withdrawal_from_status(db, "wd_x", "failed")
+    chk("immediate failure refunds exactly once", db.users.docs[0]["wallet_balance"] == 1000)
+    db = fresh(); chk("a non-final status changes nothing", await wallet.settle_withdrawal_from_status(db, "wd_x", "pending") == "pending" and db.wallet_transactions.docs[0]["status"] == "pending")
+
+    class FakePaystack:
+        def __init__(self, answers): self.answers = answers; self.calls = 0
+        async def verify_transfer(self, ref):
+            self.calls += 1; a = self.answers
+            if isinstance(a, Exception): raise a
+            return {"data": {"status": a}}
+
+    db = fresh(age_min=30); n = await wallet.reconcile_pending_withdrawals(db, FakePaystack("success"))
+    chk("old pending withdrawal confirmed by Paystack completes", n == 1 and db.wallet_transactions.docs[0]["status"] == "success")
+    db = fresh(age_min=30); n = await wallet.reconcile_pending_withdrawals(db, FakePaystack("failed"))
+    chk("old pending withdrawal Paystack says failed is refunded", n == 1 and db.users.docs[0]["wallet_balance"] == 1000)
+    db = fresh(age_min=5); ps = FakePaystack("success"); n = await wallet.reconcile_pending_withdrawals(db, ps)
+    chk("recent withdrawals are left for the webhook", n == 0 and ps.calls == 0)
+    db = fresh(age_min=30); n = await wallet.reconcile_pending_withdrawals(db, FakePaystack("pending"))
+    chk("still processing stays pending", n == 0 and db.wallet_transactions.docs[0]["status"] == "pending")
+    db = fresh(age_min=30); n = await wallet.reconcile_pending_withdrawals(db, FakePaystack(HTTPStatusError(404)))
+    chk("unknown to Paystack but recent: wait", n == 0 and db.users.docs[0]["wallet_balance"] == 0)
+    db = fresh(age_min=300); n = await wallet.reconcile_pending_withdrawals(db, FakePaystack(HTTPStatusError(404)))
+    chk("unknown to Paystack for hours: money returned", n == 1 and db.users.docs[0]["wallet_balance"] == 1000)
+    db = fresh(age_min=300); n = await wallet.reconcile_pending_withdrawals(db, FakePaystack(RequestError("down")))
+    chk("Paystack unreachable: nothing is changed", n == 0 and db.users.docs[0]["wallet_balance"] == 0)
+    db = fresh(age_min=300); n = await wallet.reconcile_pending_withdrawals(db, FakePaystack(HTTPStatusError(500)))
+    chk("Paystack error: nothing is changed", n == 0 and db.users.docs[0]["wallet_balance"] == 0)
 
     # phone normalisation (same regex as schemas.PayoutAccountAdd)
     def norm(v):

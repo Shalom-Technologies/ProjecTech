@@ -10,7 +10,7 @@ from app.database import get_database
 from app.dependencies import get_current_user, require_role, require_verified_role
 from app.schemas import ProjectCreate, ProjectUpdate, ApplicationCreate, PriceProposalCreate, PriceProposalDecision, ProblemReport
 from app.lookups import users_by_id
-from app.delivery import deliver_project, resend_review_email, open_dispute, serialize_delivery, serialize_dispute
+from app.delivery import deliver_project, reopen_project, resend_review_email, open_dispute, serialize_delivery, serialize_dispute
 from app.pricing import get_agreed_amount, check_amount_limits, round_money, serialize_proposal
 
 router = APIRouter(prefix="/api/projects", tags=["Projects"])
@@ -244,6 +244,12 @@ async def update_project(
         raise HTTPException(status_code=403, detail="You can only update your own projects")
 
     if updates.status is not None and updates.status != project["status"]:
+        if project["status"] == "cancelled" and updates.status == "open":
+            raise HTTPException(
+                status_code=400,
+                detail="Use Reopen project to put a cancelled project back on the market.",
+            )
+
         if updates.status == "completed":
             raise HTTPException(
                 status_code=400,
@@ -441,7 +447,9 @@ async def accept_application(
         {"_id": project["_id"]},
         {
             "$set": {
-                "applications.$[elem].status": "rejected"
+                "applications.$[elem].status": "rejected",
+                # So a reopened project can bring these people back (not ones rejected by hand).
+                "applications.$[elem].auto_rejected": True,
             }
         },
         array_filters=[
@@ -760,3 +768,22 @@ async def resend_review_email_route(
         raise HTTPException(status_code=403, detail="Only the project owner can do this")
 
     return await resend_review_email(db, project)
+
+
+
+@router.post("/{project_id}/reopen")
+async def reopen_cancelled_project(
+    project_id: str,
+    current_user: dict = Depends(require_verified_role("salesperson"))
+):
+    """Puts a cancelled project (for example after a refund) back on the market for a new developer."""
+    db = get_database()
+    project = await db.projects.find_one({"_id": to_object_id(project_id)})
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project["salesperson_id"] != current_user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the project owner can reopen it")
+
+    await reopen_project(db, project)
+    return {"message": "The project is open again. Developers can apply, and you can pick a new one."}

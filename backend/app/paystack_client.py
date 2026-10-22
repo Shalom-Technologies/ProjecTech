@@ -93,5 +93,16 @@ class PaystackClient:
             response.raise_for_status()
             return response.json()
 
+    async def verify_transfer(self, reference: str) -> dict:
+        """Ask Paystack what became of one of our transfers (the reference we sent it)."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/transfer/verify/{reference}",
+                headers=self.headers,
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            return response.json()
+
 
 paystack = PaystackClient()

@@ -16,6 +16,7 @@ export const projectsApi = {
 
   // Delivery and problem reports
   deliver: (id) => api.post(`/api/projects/${id}/deliver`),
+  reopen: (id) => api.post(`/api/projects/${id}/reopen`),
   resendReviewEmail: (id) => api.post(`/api/projects/${id}/resend-review-email`),
   reportProblem: (id, reason) => api.post(`/api/projects/${id}/dispute`, { reason }),
 

@@ -24,7 +24,7 @@ mod("app.database", get_database=lambda: types.SimpleNamespace(projects=Projects
 mod("app.dependencies", get_current_user=lambda: None, require_verified_user=lambda: None)
 mod("app.schemas", UserProfileUpdate=object, PayoutAccountAdd=object, WithdrawRequest=object)
 mod("app.paystack_client", paystack=None); mod("app.rate_limit", limiter=types.SimpleNamespace(limit=lambda s: (lambda f: f)))
-mod("app.wallet", refund_withdrawal=None)
+mod("app.wallet", refund_withdrawal=None, settle_withdrawal_from_status=None)
 spec = importlib.util.spec_from_file_location("app.routes.users", f"{BACKEND}/app/routes/users.py")
 users = importlib.util.module_from_spec(spec); spec.loader.exec_module(users)
 def user(role, _id): return {"_id": _id, "role": role, "email": "e", "first_name": "A", "last_name": "B", "created_at": 0}

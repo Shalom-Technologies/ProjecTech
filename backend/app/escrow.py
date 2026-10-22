@@ -47,6 +47,9 @@ async def settle_escrow(db, transaction: dict, refund_amount: float = 0.0):
         {"_id": transaction["_id"], "status": "success", "escrow_status": "held"},
         {"$set": {
             "escrow_status": "refunded" if fully_refunded else "released",
+            # A fully refunded payment no longer funds the project, so the project can be
+            # reopened and paid again. A partly refunded one stays "success".
+            **({"status": "refunded"} if fully_refunded else {}),
             "settled_at": now,
             "refunded_amount": refund,
         }},

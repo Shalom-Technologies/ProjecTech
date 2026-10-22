@@ -20,6 +20,8 @@ from fastapi import HTTPException
 from app.config import settings
 from app.escrow import settle_escrow, release_matured_holds
 from app.mailer import send_or_record
+from app.paystack_client import paystack
+from app.wallet import reconcile_pending_withdrawals
 from app.pricing import round_money
 
 logger = logging.getLogger(__name__)
@@ -265,8 +267,12 @@ async def run_periodic_jobs(db):
     """Run on a timer. Safe on several servers at once, because every step is an atomic claim."""
     released = await process_due_deliveries(db)
     matured = await release_matured_holds(db)
-    if released or matured:
-        logger.info(f"Periodic jobs: {released} deliveries auto-released, {matured} payout holds matured")
+    withdrawals = await reconcile_pending_withdrawals(db, paystack)
+    if released or matured or withdrawals:
+        logger.info(
+            f"Periodic jobs: {released} deliveries auto-released, {matured} payout holds matured, "
+            f"{withdrawals} stuck withdrawals settled"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -375,3 +381,84 @@ async def resolve_dispute(db, project_id, outcome: str, refund_amount: float | N
             )
 
     return {"outcome": outcome, "refunded": refund, "project_status": new_status, "settled": settled}
+
+
+
+# ---------------------------------------------------------------------------
+# reopening a cancelled project
+# ---------------------------------------------------------------------------
+
+async def reopen_project(db, project: dict) -> dict:
+    """
+    Puts a cancelled project back on the market so the salesperson can pick a new developer.
+
+    Allowed only when no payment is tied up in it: the client was fully refunded, or the project
+    was cancelled before anyone paid. The finished engagement is kept in `previous_engagements`
+    so nothing is lost, and everything tied to the old developer (assignment, agreed price,
+    price change, delivery, problem report, unpaid links) is cleared so the next engagement
+    starts clean.
+    """
+    if project["status"] != "cancelled":
+        raise HTTPException(status_code=400, detail="Only a cancelled project can be reopened.")
+
+    if (project.get("dispute") or {}).get("status") == "open":
+        raise HTTPException(status_code=400, detail="A problem report is still open on this project.")
+
+    # Payments recorded before refunds changed the transaction status still say "success".
+    await db.transactions.update_many(
+        {"project_id": project["_id"], "status": "success", "escrow_status": "refunded"},
+        {"$set": {"status": "refunded"}},
+    )
+    if await db.transactions.find_one({"project_id": project["_id"], "status": "success"}):
+        raise HTTPException(
+            status_code=400,
+            detail="This project has a payment that was not refunded, so it cannot be reopened.",
+        )
+
+    # Links made for the old developer or price must not be payable any more.
+    await db.transactions.update_many(
+        {"project_id": project["_id"], "status": "pending"},
+        {"$set": {"status": "cancelled", "cancelled_reason": "project_reopened"}},
+    )
+
+    now = _now()
+    previous_developer = project.get("assigned_to")
+    snapshot = {
+        "developer_id": previous_developer,
+        "agreed_amount": project.get("agreed_amount"),
+        "assignment_date": project.get("assignment_date"),
+        "delivery": project.get("delivery"),
+        "dispute": project.get("dispute"),
+        "ended_at": project.get("updated_at"),
+        "reopened_at": now,
+    }
+
+    result = await db.projects.update_one(
+        {"_id": project["_id"], "status": "cancelled"},
+        {
+            "$set": {"status": "open", "updated_at": now},
+            "$unset": {
+                "assigned_to": "", "assignment_date": "", "agreed_amount": "",
+                "price_proposal": "", "delivery": "", "dispute": "",
+            },
+            "$push": {"previous_engagements": snapshot},
+        },
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=409, detail="This project was already reopened.")
+
+    # The previous developer's application ends; people turned away automatically when that
+    # developer was picked can be considered again (ones rejected by hand stay rejected).
+    await db.projects.update_one(
+        {"_id": project["_id"]},
+        {"$set": {"applications.$[prev].status": "rejected"}},
+        array_filters=[{"prev.developer_id": previous_developer, "prev.status": "accepted"}],
+    )
+    await db.projects.update_one(
+        {"_id": project["_id"]},
+        {"$set": {"applications.$[auto].status": "pending"}, "$unset": {"applications.$[auto].auto_rejected": ""}},
+        array_filters=[{"auto.auto_rejected": True, "auto.status": "rejected"}],
+    )
+
+    logger.info(f"Project {project['_id']} reopened by its owner")
+    return {"status": "open"}

@@ -75,7 +75,7 @@ def match(doc, q):
 
 class Coll:
     def __init__(self): self.docs, self.after_find = [], None
-    async def find_one(self, q):
+    async def find_one(self, q, sort=None):
         for d in self.docs:
             if match(d, q):
                 snap = json.loads(json.dumps(d, default=lambda o: o)) if False else dict(d)
@@ -269,7 +269,7 @@ async def main():
     check("developer was told about the dispute", any(n["type"] == "dispute_opened" and n["user_id"] == dev3["_id"] for n in db.notifications.docs))
 
     res = await delivery.resolve_dispute(db, proj3["_id"], "refund", None, "Never worked")
-    tx3 = await db.transactions.find_one({"project_id": proj3["_id"], "status": "success"})
+    tx3 = await db.transactions.find_one({"project_id": proj3["_id"], "status": "refunded"})
     p3 = await db.projects.find_one({"_id": proj3["_id"]})
     check("refund recorded, project cancelled, nothing paid out", tx3["escrow_status"] == "refunded" and tx3["refunded_amount"] == 80000.0 and p3["status"] == "cancelled" and p3["dispute"]["status"] == "resolved")
     check("developer wallet untouched by refund", (await user(dev3))["pending_balance"] == 0 and (await user(dev3))["wallet_balance"] == 0)

@@ -27,6 +27,7 @@ export default function MyProjects() {
   const [reportingId, setReportingId] = useState(null);
   const [notice, setNotice] = useState("");
   const [resendingId, setResendingId] = useState(null);
+  const [reopeningId, setReopeningId] = useState(null);
   const [shareLink, setShareLink] = useState({});
   const navigate = useNavigate();
 
@@ -109,12 +110,37 @@ export default function MyProjects() {
     }
   };
 
+  const handleReopen = async (project) => {
+    if (
+      !window.confirm(
+        "Reopen this project? It goes back on the market so developers can apply, and you can pick a new developer. The earlier developer is removed from it."
+      )
+    ) {
+      return;
+    }
+    setReopeningId(project.id);
+    setError("");
+    setNotice("");
+    try {
+      await projectsApi.reopen(project.id);
+      navigate(`/dashboard/projects/${project.id}/applications`);
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+          err.response?.data?.detail ||
+          "Could not reopen this project."
+      );
+    } finally {
+      setReopeningId(null);
+    }
+  };
+
   // What the money is doing, in words, for a paid project.
   const paymentBadge = (project) => {
     const pay = paymentMap[project.id];
+    if (pay?.escrow_status === "refunded") return { text: "Refunded to client", cls: "cancelled" };
     if (!pay?.is_funded) return null;
     if (pay.dispute?.status === "open") return { text: "Problem reported", cls: "disputed" };
-    if (pay.escrow_status === "refunded") return { text: "Refunded to client", cls: "cancelled" };
     if (pay.escrow_status === "released") return { text: "Payment released", cls: "funded" };
     if (pay.delivery?.status === "delivered") {
       return {
@@ -171,6 +197,11 @@ export default function MyProjects() {
                 {project.status === "in_progress" && !paymentMap[project.id]?.is_funded && (
                   <button onClick={() => setPayingProject(project)}>
                     Fund project
+                  </button>
+                )}
+                {project.status === "cancelled" && (
+                  <button onClick={() => handleReopen(project)} disabled={reopeningId === project.id}>
+                    {reopeningId === project.id ? "Reopening..." : "Reopen project"}
                   </button>
                 )}
                 {project.status === "in_progress" &&
