@@ -42,7 +42,7 @@ export default function ReportProblemForm({ onSubmit, onCancel, intro }) {
           onChange={(e) => setReason(e.target.value)}
         />
       </div>
-      <button type="submit" disabled={submitting}>
+      <button type="submit" className="btn-primary" disabled={submitting}>
         {submitting ? "Sending..." : "Send report"}
       </button>{" "}
       <button type="button" className="btn-secondary" onClick={onCancel} disabled={submitting}>

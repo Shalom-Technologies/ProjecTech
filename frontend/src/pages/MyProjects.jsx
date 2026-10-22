@@ -195,12 +195,12 @@ export default function MyProjects() {
 
               <div className="project-row-actions">
                 {project.status === "in_progress" && !paymentMap[project.id]?.is_funded && (
-                  <button onClick={() => setPayingProject(project)}>
+                  <button className="btn-primary" onClick={() => setPayingProject(project)}>
                     Fund project
                   </button>
                 )}
                 {project.status === "cancelled" && (
-                  <button onClick={() => handleReopen(project)} disabled={reopeningId === project.id}>
+                  <button className="btn-primary" onClick={() => handleReopen(project)} disabled={reopeningId === project.id}>
                     {reopeningId === project.id ? "Reopening..." : "Reopen project"}
                   </button>
                 )}
@@ -254,6 +254,7 @@ export default function MyProjects() {
                   </p>
                   <button
                     type="button"
+                    className="btn-primary"
                     onClick={() => handleResendEmail(project)}
                     disabled={resendingId === project.id}
                   >

@@ -18,6 +18,7 @@ from app.rate_limit import limiter
 from app.wallet import settle_withdrawal_from_status
 from app.pricing import get_agreed_amount, check_amount_limits, round_money
 from app.escrow import settle_escrow
+from app.refunds import REFUND_EVENTS, record_refund_event
 from app.delivery import accept_delivery, serialize_delivery, serialize_dispute
 
 
@@ -376,6 +377,9 @@ async def paystack_webhook(request: Request):
 
     elif event in ("transfer.success", "transfer.failed", "transfer.reversed"):
         await _handle_transfer_event(db, event, data)
+
+    elif event in REFUND_EVENTS:
+        await record_refund_event(db, event, data)
 
     # Always return 200 quickly so Paystack doesn't retry unnecessarily
     return {"status": "received"}

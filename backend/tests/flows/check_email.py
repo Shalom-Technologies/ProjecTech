@@ -136,7 +136,7 @@ mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (
 sent = []
 async def send_password_reset_email(email, link, name): sent.append(link)
 mod("app.email_client", send_password_reset_email=send_password_reset_email, send_review_started_email=None)
-mod("app.security", hash_password=lambda p: "H:" + p, verify_password=lambda p, h: h == "H:" + p, create_access_token=lambda d: "t", generate_reset_token=lambda: "tok123", hash_reset_token=None)
+mod("app.security", hash_password=lambda p: "H:" + p, verify_password=lambda p, h: h == "H:" + p, create_access_token=lambda d: "t", token_for_user=lambda u: "t:%s" % u.get("password_version", 0), token_matches_password_version=lambda p, u: p.get("pv", 0) == u.get("password_version", 0), generate_reset_token=lambda: "tok123", hash_reset_token=None)
 paystack_calls = []
 class FakePaystack:
     async def verify_transaction(self, reference):
@@ -154,7 +154,7 @@ emails = []
 async def send_review_started_email(**kw): emails.append(kw)
 mod("app.email_client", send_review_started_email=send_review_started_email)
 load("app.lookups", "app/lookups.py"); load("app.mailer", "app/mailer.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py")
-load("app.escrow", "app/escrow.py"); delivery = load("app.delivery", "app/delivery.py")
+load("app.escrow", "app/escrow.py"); load("app.admin_alerts", "app/admin_alerts.py"); load("app.refunds", "app/refunds.py"); delivery = load("app.delivery", "app/delivery.py")
 projects = load("app.routes.projects", "app/routes/projects.py")
 payments = load("app.routes.payments", "app/routes/payments.py")
 invoices = load("app.routes.invoices", "app/routes/invoices.py")
@@ -211,7 +211,7 @@ mod("app.email_client", send_password_reset_email=send_password_reset_email,
     send_verification_email=send_verification_email, send_review_started_email=send_review_started_email)
 verification = load("app.verification", "app/verification.py")
 auth = load("app.routes.auth", "app/routes/auth.py")
-delivery = load("app.delivery", "app/delivery.py")
+load("app.admin_alerts", "app/admin_alerts.py"); load("app.refunds", "app/refunds.py"); delivery = load("app.delivery", "app/delivery.py")
 
 # real dependency guards, with the web-framework pieces stubbed
 fastapi.status = types.SimpleNamespace(HTTP_201_CREATED=201, HTTP_204_NO_CONTENT=204, HTTP_403_FORBIDDEN=403)
@@ -222,7 +222,8 @@ jwtm = types.ModuleType("jwt")
 class _E(Exception): pass
 jwtm.ExpiredSignatureError = jwtm.InvalidTokenError = jwtm.PyJWTError = _E
 sys.modules["jwt"] = jwtm
-mod("app.security", **{**S.__dict__, "decode_access_token": lambda t: {}})
+_payload = {}
+mod("app.security", **{**S.__dict__, "decode_access_token": lambda t: _payload})
 deps = load("app.dependencies_real", "app/dependencies.py")
 from app.schemas import UserRegister, ForgotPasswordRequest, VerifyEmailRequest
 
@@ -238,6 +239,18 @@ async def main():
     # ---- gating ----
     await expect_http("unverified user blocked from money actions", 403, deps.require_verified_user(current_user=user))
     await expect_http("unverified salesperson blocked", 403, deps.require_verified_role("salesperson")(current_user=user))
+
+    # ---- old logins stop working once the password changes ----
+    from types import SimpleNamespace
+    creds = SimpleNamespace(credentials="tok")
+    global _payload
+    _payload.clear(); _payload.update({"sub": str(user["_id"]), "pv": 0})
+    check("current token accepted", (await deps.get_current_user(creds))["_id"] == user["_id"])
+    user["password_version"] = 1
+    await expect_http("token from before a password change rejected", 401, deps.get_current_user(creds))
+    _payload["pv"] = 1
+    check("token for the new version accepted", (await deps.get_current_user(creds)) is not None)
+    user["password_version"] = 0
 
     # ---- confirming ----
     await expect_http("bad token rejected", 400, auth.verify_email(None, VerifyEmailRequest(token="nonsense-token-123")))

@@ -4,7 +4,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 import jwt
 
-from app.security import decode_access_token
+from app.security import decode_access_token, token_matches_password_version
 from app.database import get_database
 
 security_scheme = HTTPBearer()
@@ -32,6 +32,9 @@ async def get_current_user(
 
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
+
+    if not token_matches_password_version(payload, user):
+        raise HTTPException(status_code=401, detail="Your password was changed. Please log in again.")
 
     return user
 

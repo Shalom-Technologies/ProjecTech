@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from app.config import settings
 from app.escrow import settle_escrow, release_matured_holds
 from app.mailer import send_or_record
+from app.admin_alerts import send_admin_digest
 from app.paystack_client import paystack
 from app.wallet import reconcile_pending_withdrawals
 from app.pricing import round_money
@@ -268,6 +269,7 @@ async def run_periodic_jobs(db):
     released = await process_due_deliveries(db)
     matured = await release_matured_holds(db)
     withdrawals = await reconcile_pending_withdrawals(db, paystack)
+    await send_admin_digest(db)
     if released or matured or withdrawals:
         logger.info(
             f"Periodic jobs: {released} deliveries auto-released, {matured} payout holds matured, "
@@ -382,6 +384,50 @@ async def resolve_dispute(db, project_id, outcome: str, refund_amount: float | N
 
     return {"outcome": outcome, "refunded": refund, "project_status": new_status, "settled": settled}
 
+
+async def refund_project(db, project_id, note: str | None = None) -> dict:
+    """
+    Refunds the client in full for a funded project that has NO open problem report: for
+    example the client wrote to ProjecTech directly, or the developer disappeared. Called by
+    the admin script after the refund was issued in the Paystack dashboard.
+
+    The payment is recorded as refunded and the project is cancelled, so the salesperson can
+    reopen it with a new developer. An open problem report must be closed with
+    resolve_dispute instead, so its record stays in one place.
+    """
+    project = await db.projects.find_one({"_id": project_id})
+    if not project:
+        raise ValueError("Project not found")
+    if (project.get("dispute") or {}).get("status") == "open":
+        raise ValueError("This project has an open problem report. Resolve it with the resolve command instead")
+
+    transaction = await held_transaction(db, project["_id"])
+    if not transaction:
+        raise ValueError("No held payment was found for this project (nothing funded, or already settled)")
+
+    total = round_money(transaction["total_amount"])
+    settled = await settle_escrow(db, transaction, total)
+    if settled is None:
+        raise ValueError("The payment was already settled")
+
+    now = _now()
+    await db.projects.update_one(
+        {"_id": project["_id"]},
+        {"$set": {
+            "status": "cancelled",
+            "admin_refund": {"note": note, "refunded_at": now, "amount": total},
+            "updated_at": now,
+        }},
+    )
+    for user_id in (project["salesperson_id"], project.get("assigned_to")):
+        if user_id:
+            await notify(
+                db, user_id, "project_refunded", "Client refunded",
+                f"ProjecTech refunded the client {settings.CURRENCY} {total:,.2f} for '{project['title']}' "
+                f"and cancelled the project.",
+                project["_id"],
+            )
+    return {"refunded": total, "project_status": "cancelled", "settled": settled}
 
 
 # ---------------------------------------------------------------------------

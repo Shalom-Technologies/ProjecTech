@@ -90,3 +90,15 @@ async def send_review_started_email(to_email: str, project_title: str, invoice_u
         </div>
     """
     await _send(to_email, f"Your project was delivered: {project_title}", html, "Review")
+
+
+async def send_admin_alert_email(to_email: str, subject: str, lines: list[str]):
+    items = "".join(f"<li style='margin-bottom: 8px;'>{escape(line)}</li>" for line in lines)
+    html = f"""
+        <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
+            <h2>ProjecTech needs your attention</h2>
+            <ul>{items}</ul>
+            <p>Run <code>python -m scripts.resolve_dispute</code> on the server to see the details and act on them.</p>
+        </div>
+    """
+    await _send(to_email, subject, html, "Admin alert")

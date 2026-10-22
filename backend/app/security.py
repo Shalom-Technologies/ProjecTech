@@ -26,6 +26,23 @@ def create_access_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
+def token_for_user(user: dict) -> str:
+    """
+    A login token for this user. It carries the account's password version ("pv"), so changing
+    or resetting the password (which raises the version) makes every older token stop working.
+    """
+    return create_access_token({
+        "sub": str(user["_id"]),
+        "role": user["role"],
+        "pv": user.get("password_version", 0),
+    })
+
+
+def token_matches_password_version(payload: dict, user: dict) -> bool:
+    """False if the password was changed after this token was issued."""
+    return payload.get("pv", 0) == user.get("password_version", 0)
+
+
 def decode_access_token(token: str) -> dict:
     return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
 

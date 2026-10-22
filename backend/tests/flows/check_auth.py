@@ -136,7 +136,7 @@ mod("app.dependencies", get_current_user=lambda: None, require_role=lambda *r: (
 sent = []
 async def send_password_reset_email(email, link, name): sent.append(link)
 mod("app.email_client", send_password_reset_email=send_password_reset_email, send_review_started_email=None)
-mod("app.security", hash_password=lambda p: "H:" + p, verify_password=lambda p, h: h == "H:" + p, create_access_token=lambda d: "t", generate_reset_token=lambda: "tok123", hash_reset_token=None)
+mod("app.security", hash_password=lambda p: "H:" + p, verify_password=lambda p, h: h == "H:" + p, create_access_token=lambda d: "t", token_for_user=lambda u: "t:%s" % u.get("password_version", 0), token_matches_password_version=lambda p, u: p.get("pv", 0) == u.get("password_version", 0), generate_reset_token=lambda: "tok123", hash_reset_token=None)
 paystack_calls = []
 class FakePaystack:
     async def verify_transaction(self, reference):
@@ -154,7 +154,7 @@ emails = []
 async def send_review_started_email(**kw): emails.append(kw)
 mod("app.email_client", send_review_started_email=send_review_started_email)
 load("app.lookups", "app/lookups.py"); load("app.mailer", "app/mailer.py"); load("app.schemas", "app/schemas.py"); load("app.pricing", "app/pricing.py"); load("app.wallet", "app/wallet.py")
-load("app.escrow", "app/escrow.py"); delivery = load("app.delivery", "app/delivery.py")
+load("app.escrow", "app/escrow.py"); load("app.admin_alerts", "app/admin_alerts.py"); load("app.refunds", "app/refunds.py"); delivery = load("app.delivery", "app/delivery.py")
 projects = load("app.routes.projects", "app/routes/projects.py")
 payments = load("app.routes.payments", "app/routes/payments.py")
 invoices = load("app.routes.invoices", "app/routes/invoices.py")
@@ -201,7 +201,7 @@ async def _sver(*a, **k): pass
 mod("app.email_client", send_password_reset_email=_spre, send_verification_email=_sver)
 load("app.verification", "app/verification.py")
 auth = load("app.routes.auth", "app/routes/auth.py")
-from app.schemas import ForgotPasswordRequest, ResetPasswordRequest
+from app.schemas import ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest
 
 async def main():
     from datetime import timedelta
@@ -215,10 +215,16 @@ async def main():
     await expect_http("wrong token rejected", 400, auth.reset_password(None, ResetPasswordRequest(token="nope", new_password="NewPassw0rd!")))
     await auth.reset_password(None, ResetPasswordRequest(token="tok123", new_password="NewPassw0rd!"))
     check("password changed", db.users.docs[0]["password_hash"] == "H:NewPassw0rd!")
+    check("reset raises the password version (signs out old devices)", db.users.docs[0].get("password_version") == 1)
     await expect_http("token cannot be reused", 400, auth.reset_password(None, ResetPasswordRequest(token="tok123", new_password="Another1Pass!")))
     db.users.docs[0]["password_hash"] = "H:keep"
     db.password_resets.docs.append({"_id": ObjectId(), "user_id": uid, "token_hash": hashlib.sha256(b"old").hexdigest(), "used": False, "expires_at": datetime.now(timezone.utc) - timedelta(minutes=1)})
     await expect_http("expired token rejected", 400, auth.reset_password(None, ResetPasswordRequest(token="old", new_password="Another1Pass!")))
     check("expired token did not change password", db.users.docs[0]["password_hash"] == "H:keep")
+    # changing the password while logged in: other devices out, this one gets a fresh token
+    db.users.docs[0]["password_hash"] = "H:cur"
+    res = await auth.change_password(None, ChangePasswordRequest(current_password="cur", new_password="Brand9NewPass!"), current_user=db.users.docs[0])
+    check("change raises the version again", db.users.docs[0].get("password_version") == 2)
+    check("change returns a token for the new version", res["access_token"] == "t:2")
     print(f"\n{sum(results)}/{len(results)} passed"); sys.exit(0 if all(results) else 1)
 asyncio.run(main())

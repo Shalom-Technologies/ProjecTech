@@ -3,7 +3,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 import jwt
 
-from app.security import decode_access_token
+from app.security import decode_access_token, token_matches_password_version
 from app.database import get_database
 from app.websocket_manager import manager
 
@@ -41,7 +41,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4001)
         return
 
-    if not user:
+    if not user or not token_matches_password_version(payload, user):
         await websocket.close(code=4001)
         return
 
