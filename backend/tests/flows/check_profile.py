@@ -21,7 +21,7 @@ class Projects:
     async def count_documents(self, q):
         return sum(all(d.get(k) == v for k, v in q.items()) for d in self.docs)
 mod("app.database", get_database=lambda: types.SimpleNamespace(projects=Projects()))
-mod("app.dependencies", get_current_user=lambda: None)
+mod("app.dependencies", get_current_user=lambda: None, require_verified_user=lambda: None)
 mod("app.schemas", UserProfileUpdate=object, PayoutAccountAdd=object, WithdrawRequest=object)
 mod("app.paystack_client", paystack=None); mod("app.rate_limit", limiter=types.SimpleNamespace(limit=lambda s: (lambda f: f)))
 mod("app.wallet", refund_withdrawal=None)
