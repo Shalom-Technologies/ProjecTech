@@ -75,7 +75,7 @@ def match(doc, q):
 
 class Coll:
     def __init__(self): self.docs, self.after_find = [], None
-    async def find_one(self, q):
+    async def find_one(self, q, sort=None):
         for d in self.docs:
             if match(d, q):
                 snap = json.loads(json.dumps(d, default=lambda o: o)) if False else dict(d)

@@ -23,7 +23,8 @@ router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
 async def _invoice_status(db, project: dict) -> str:
     """
     payable | awaiting_price_approval | unavailable, before payment
-    paid | in_review | disputed | completed | refunded, after payment
+    paid | in_review | disputed | completed | refunded, after payment (refunded also while the
+    project stays cancelled after a refund; once reopened it is payable again)
     """
     paid = await db.transactions.find_one({"project_id": project["_id"], "status": "success"})
     if paid:
@@ -36,6 +37,10 @@ async def _invoice_status(db, project: dict) -> str:
         if (project.get("delivery") or {}).get("status") == "delivered":
             return "in_review"
         return "paid"
+    if project["status"] == "cancelled" and await db.transactions.find_one(
+        {"project_id": project["_id"], "status": "refunded"}
+    ):
+        return "refunded"
     if project["status"] != "in_progress" or not project.get("assigned_to"):
         return "unavailable"
     proposal = project.get("price_proposal")

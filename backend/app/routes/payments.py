@@ -186,6 +186,9 @@ async def verify_payment(request: Request, verify_data: PaymentVerify):
     if transaction["status"] == "success":
         return {"status": "success", "message": "Already verified"}
 
+    if transaction["status"] == "refunded":
+        raise HTTPException(status_code=400, detail="This payment was refunded.")
+
     try:
         paystack_response = await paystack.verify_transaction(verify_data.reference)
     except httpx.HTTPStatusError as e:
@@ -499,9 +502,18 @@ async def get_project_payment_status(
         "project_id": project_oid,
         "status": "success",
     })
+    is_funded = transaction is not None
+    if transaction is None:
+        # A fully refunded payment is not "funded" any more. While the project stays
+        # cancelled its page still shows the refund; once reopened, a new payment starts clean.
+        cancelled = await db.projects.find_one({"_id": project_oid, "status": "cancelled"})
+        if cancelled:
+            transaction = await db.transactions.find_one(
+                {"project_id": project_oid, "status": "refunded"}, sort=[("settled_at", -1)]
+            )
 
     response = {
-        "is_funded": transaction is not None,
+        "is_funded": is_funded,
         "transaction_id": None,
         "escrow_status": None,
         "delivery": None,
